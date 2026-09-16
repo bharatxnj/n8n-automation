@@ -1,0 +1,680 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$json.extractionPrompt}}",
+        "options": {
+          "systemMessage": "You are a precise multi-file Terraform/GCP code extraction agent. Return strict JSON only. Never modify code in Agent 1. Extract exact snippets from supplied files and identify which files actually need review."
+        }
+      },
+      "id": "76fc7ef4-09b8-4b4b-a9cd-ebd035d3e552",
+      "name": "AI Agent 1 - Extract Useful Code1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [672, 4224],
+      "typeVersion": 1.7
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "a4faa73b-d668-4168-809e-0f7c15268d6b",
+      "name": "Extractor Chat Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "position": [752, 4448],
+      "typeVersion": 1.2,
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$json.reviewPrompt}}",
+        "options": {
+          "systemMessage": "You are a senior multi-file GCP Terraform reviewer. Return strict JSON only. Select the best safe machine type changes, keep every originalExtractedCode exactly synced with the validated extraction list, update only quoted machine_type assignments, and recommend other files without editing them."
+        }
+      },
+      "id": "f8daec64-a772-4436-b992-1dc1a3536727",
+      "name": "AI Agent 2 - Review And Update Code1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [1248, 4224],
+      "typeVersion": 1.7
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list"
+        },
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "904f3782-7bc6-4e24-8d53-1bcb8265f7fa",
+      "name": "Reviewer Chat Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "position": [1328, 4448],
+      "typeVersion": 1.2,
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const skipped = item.json;\n  const instanceResults = skipped.instanceResults ?? (skipped.recommendations ?? []).map(recommendation => ({\n    instanceKey: recommendation.instanceKey,\n    instanceName: recommendation.instanceName,\n    projectName: recommendation.projectName,\n    targetName: recommendation.targetName,\n    files: recommendation.files ?? [],\n    recommendationIndexes: [recommendation.recommendationIndex],\n    recommendations: [{\n      recommendationIndex: recommendation.recommendationIndex,\n      currentMachineType: recommendation.currentMachineType,\n      targetMachineType: recommendation.targetMachineType,\n      recommendedAction: recommendation.recommendedAction,\n      files: recommendation.files ?? []\n    }],\n    appliedChanges: [],\n    skippedChanges: skipped.changes ?? [],\n    changedFiles: [],\n    status: 'not_updated'\n  }));\n  return {\n    json: {\n      status: skipped.status ?? 'not_updated',\n      repository: skipped.owner + '/' + skipped.repo,\n      owner: skipped.owner,\n      repo: skipped.repo,\n      branch: skipped.branch,\n      baseBranch: skipped.baseBranch ?? 'main',\n      allInputFiles: skipped.allInputFiles,\n      updatedFileCount: 0,\n      updatedFiles: [],\n      instanceResults,\n      skippedChanges: skipped.changes ?? [],\n      skippedUnmappedRecommendations: skipped.skippedUnmappedRecommendations ?? [],\n      skippedUnmappedRecommendationCount: (skipped.skippedUnmappedRecommendations ?? []).length,\n      rawRecommendationCount: skipped.rawRecommendationCount,\n      mappedRecommendationCount: skipped.mappedRecommendationCount,\n      overallBestRecommendation: skipped.review?.overallBestRecommendation,\n      overallReason: skipped.review?.overallReason ?? (skipped.noMappedRecommendations ? 'No first-agent recommendations matched the webhook instance/file mappings. Unmapped recommendations were skipped and GitHub was not updated.' : 'No supplied file required a GitHub update.'),\n      otherFileRecommendations: skipped.review?.otherFileRecommendations ?? skipped.extraction?.otherFileRecommendations ?? [],\n      github: null,\n      pullRequest: null\n    }\n  };\n});"
+      },
+      "id": "2ff123f8-4a52-4972-b41a-34a23c7fa66d",
+      "name": "Build Skipped Response1",
+      "type": "n8n-nodes-base.code",
+      "position": [2048, 4320],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $json.items || {};\nconst output = [];\nlet count = 0;\n\nfor (const [scope, obj] of Object.entries(items)) {\n  const instances = obj.instances || [];\n  for (const inst of instances) {\n    output.push({ json: { scope, ...inst } });\n    count += 1;\n    if (count >= 2) return output;\n  }\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-2816, 4224],
+      "id": "00ba5b59-4676-4741-ac78-cadb59e5b9d7",
+      "name": "Get list of VM Instances"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json, null, 2) }}",
+        "options": {
+          "systemMessage": "You are an expert Google Cloud FinOps Consultant. Review the provided active VMs. If a machine type appears over provisioned or needlessly expensive for standard workloads, suggest a downsized alternative.Return ONLY valid JSON (no markdown, no extra text) with exactly these keys:\n{\n  \"project_id\":\"\",\n  \"vm_name\": \"\",\n  \"zone\": \"\",\n  \"current_type\": \"\",\n  \"recommended_type\": \"\",\n  \"optimisation_reason\": \"\"\n}\nThe project_id field needs to be returned for all VMs.\n\nVM record:\n{{ JSON.stringify($json, null, 2) }}\n Do not include conversational text before or after the table."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [-2592, 4224],
+      "id": "beca1366-3cc1-4903-bab1-c359c181c06d",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "=customKey",
+        "sessionKey": "gcp_cost_optimization"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [-2464, 4448],
+      "id": "f70448d1-a254-4ff3-a4e3-53626247c98e",
+      "name": "Simple Memory1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "responsesApiEnabled": false,
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [-2592, 4448],
+      "id": "08b69c12-51ca-4409-8e69-58484e7f612e",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json ?? {});\nconst form = $('Input Details').first().json ?? {};\n\nfunction text(value) {\n  return value === undefined || value === null ? '' : String(value).trim();\n}\nfunction firstValue(...values) {\n  for (const value of values) {\n    const normalized = text(value);\n    if (normalized) return normalized;\n  }\n  return '';\n}\nfunction unique(values) {\n  return [...new Set(values.map(text).filter(Boolean))];\n}\nfunction inferTargetName(instanceName) {\n  const name = text(instanceName);\n  if (!name) return '';\n  const patterns = [\n    /^(.*?-mig)-instance-[a-z0-9-]+$/i,\n    /^(.*?-mig)-instanc-[a-z0-9-]+$/i,\n    /^(.*?)-instance-[a-z0-9-]+$/i\n  ];\n  for (const pattern of patterns) {\n    const match = name.match(pattern);\n    if (match?.[1]) return match[1];\n  }\n  return name.replace(/-[0-9a-z]+$/i, '');\n}\nfunction fileList(row) {\n  if (Array.isArray(row.files)) return unique(row.files);\n  if (typeof row.files === 'string' && row.files.trim()) return unique(row.files.split(','));\n  if (typeof row.fileNamesCsv === 'string' && row.fileNamesCsv.trim()) return unique(row.fileNamesCsv.split(','));\n  return [];\n}\n\nconst seen = new Set();\nconst instances = [];\nfor (const row of rows) {\n  if (!row || row.error) continue;\n  const instanceName = firstValue(row.instance_name, row.vmName, row.vm_name, row.instanceName, row.name, row.instance);\n  const targetName = firstValue(row.target_name, row.targetName, row.mig, row.migName, inferTargetName(instanceName));\n  const files = fileList(row);\n  if (!instanceName || files.length === 0) continue;\n  const key = [instanceName, targetName, files.join('|')].join('\\u0000');\n  if (seen.has(key)) continue;\n  seen.add(key);\n  instances.push({\n    instance_name: instanceName,\n    target_name: targetName,\n    files\n  });\n}\n\nreturn [\n  {\n    json: {\n      body: {\n        owner: firstValue(form.owner, 'YOUR-GITHUB-ORG'),\n        repo: firstValue(form.repo, 'YOUR-GITHUB-REPO'),\n        branch: firstValue(form.branch, 'feature/your-branch'),\n        baseBranch: firstValue(form.baseBranch, form.base_branch, form['Base Branch']) || 'main',\n        pullRequestTitle: 'Apply AI-reviewed GCP VM resize recommendations',\n        instances\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-448, 4320],
+      "id": "e344fcd7-8785-4ee7-b81d-5588cc3de45e",
+      "name": "Format Output Body"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{'https://YOUR-GITHUB-ENTERPRISE-HOST/api/v3' + '/repos/' + $json.owner + '/' + $json.repo + '/pulls'}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.pullRequestPayload}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [2496, 4128],
+      "id": "ce5efb79-0a89-4e0f-80c3-2daec62ae4e8",
+      "name": "HTTP Request1",
+      "credentials": {
+        "githubApi": {
+          "id": "YOUR_GITHUB_API_CREDENTIAL_ID",
+          "name": "YOUR_GITHUB_API_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the PR payload\nconst prData = $input.first().json;\n\n// Transform and prepare data for email workflow\nconst emailPayload = {\n  to: \"YOUR-RECIPIENT-EMAIL@YOUR-DOMAIN.COM\",\n  subject: `PR Created: ${prData.title}`,\n  prNumber: prData.number,\n  title: prData.title,\n  author: prData.user.login,\n  state: prData.state,\n  createdAt: prData.created_at,\n  sourceBranch: prData.head.ref,\n  targetBranch: prData.base.ref,\n  description: prData.body,\n  commits: prData.commits,\n  changedFiles: prData.changed_files,\n  additions: prData.additions,\n  deletions: prData.deletions,\n  prUrl: prData.html_url,\n  repository: prData.head.repo.full_name\n};\n\nreturn [{ json: emailPayload }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2720, 4128],
+      "id": "71e4449b-4396-4761-b012-9f9f0ecce773",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "fromEmail": "YOUR-FROM-EMAIL@YOUR-DOMAIN.COM",
+        "toEmail": "YOUR-RECIPIENT-EMAIL@YOUR-DOMAIN.COM",
+        "subject": "PR Created: {{ $json.title}}",
+        "html": "=<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 20px; }\n    .card { background: #fff; border-radius: 8px; padding: 24px; max-width: 600px; margin: auto; border: 1px solid #ddd; }\n    h2 { color: #0366d6; margin-top: 0; }\n    table { width: 100%; border-collapse: collapse; margin-top: 16px; }\n    td { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 14px; }\n    td:first-child { font-weight: bold; color: #555; width: 160px; }\n    .desc { margin-top: 16px; background: #f8f8f8; padding: 12px; border-left: 4px solid #0366d6; font-size: 14px; }\n    .btn { display: inline-block; margin-top: 20px; padding: 10px 24px; background: #0366d6; color: #fff; text-decoration: none; border-radius: 6px; font-size: 14px; }\n  </style>\n</head>\n<body>\n  <div class=\"card\">\n    <h2>Pull Request Notification</h2>\n    <table>\n      <tr><td>PR Number</td><td>#{{ $json.prNumber }}</td></tr>\n      <tr><td>Title</td><td>{{ $json.title }}</td></tr>\n      <tr><td>Author</td><td>{{ $json.author }}</td></tr>\n      <tr><td>Status</td><td>{{ $json.state }}</td></tr>\n      <tr><td>Repository</td><td>{{ $json.repository }}</td></tr>\n      <tr><td>Source Branch</td><td>{{ $json.sourceBranch }}</td></tr>\n      <tr><td>Target Branch</td><td>{{ $json.targetBranch }}</td></tr>\n    </table>\n    <div class=\"desc\"><strong>Description:</strong><br/>{{ $json.description }}</div>\n    <a class=\"btn\" href=\"{{ $json.prUrl }}\">View Pull Request</a>\n  </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2944, 4128],
+      "id": "546cc9d7-adde-4596-8105-ff384128c2da",
+      "name": "Send an Email",
+      "webhookId": "YOUR-WEBHOOK-ID",
+      "credentials": {
+        "smtp": {
+          "id": "YOUR_SMTP_CREDENTIAL_ID",
+          "name": "YOUR_SMTP_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const updateResponses = $input.all();\nconst updateItems = $items('Build File Update Items').filter(item => item.json.shouldUpdateGitHub);\nif (!updateItems.length) throw new Error('Build Updated Response received no GitHub update items.');\nconst first = updateItems[0].json;\nconst updatedFiles = updateResponses.map((item, index) => {\n  const updated = updateItems[index].json;\n  return {\n    filePath: updated.filePath,\n    changeCount: updated.changes.length,\n    instances: [...new Set(updated.changes.map(change => change.instanceName))],\n    github: {\n      fileSha: item.json.content?.sha,\n      fileUrl: item.json.content?.html_url,\n      commitSha: item.json.commit?.sha,\n      commitUrl: item.json.commit?.html_url\n    }\n  };\n});\nconst updatedFilesByPath = Object.fromEntries(updatedFiles.map(file => [file.filePath, file]));\nconst instanceResults = (first.instanceResults ?? []).map(instance => ({\n  ...instance,\n  changedFiles: (instance.changedFiles ?? []).map(filePath => updatedFilesByPath[filePath] ?? { filePath })\n}));\nconst pullRequestPayload = first.pullRequestPayload ?? {\n  title: first.pullRequestTitle ?? 'Apply AI-reviewed GCP VM resize recommendations',\n  head: first.branch,\n  base: first.baseBranch ?? 'main',\n  body: first.pullRequestBody ?? 'Automated GCP VM resize recommendation changes.'\n};\nreturn [{\n  json: {\n    status: 'updated_pending_pr',\n    repository: first.owner + '/' + first.repo,\n    owner: first.owner,\n    repo: first.repo,\n    branch: first.branch,\n    baseBranch: first.baseBranch ?? 'main',\n    allInputFiles: first.allInputFiles,\n    updatedFileCount: updatedFiles.length,\n    updatedFiles,\n    instanceResults,\n    appliedChanges: updateItems.flatMap(item => item.json.changes.map(change => ({\n      recommendationIndex: change.recommendationIndex,\n      projectName: change.projectName,\n      instanceName: change.instanceName,\n      filePath: change.filePath,\n      matchedTarget: change.matchedTarget,\n      oldMachineType: change.oldMachineType,\n      inputRecommendedMachineType: change.inputRecommendedMachineType,\n      newMachineType: change.targetMachineType,\n      selectedMachineTypeSource: change.selectedMachineTypeSource,\n      bestRecommendation: change.bestRecommendation,\n      reason: change.reason,\n      confidence: change.confidence\n    }))),\n    skippedChanges: first.skippedChanges ?? [],\n    skippedUnmappedRecommendations: first.skippedUnmappedRecommendations ?? [],\n    skippedUnmappedRecommendationCount: (first.skippedUnmappedRecommendations ?? []).length,\n    rawRecommendationCount: first.rawRecommendationCount,\n    mappedRecommendationCount: first.mappedRecommendationCount,\n    modifiedFiles: updateItems.map(item => ({ filePath: item.json.filePath, modifiedContent: item.json.modifiedContent })),\n    overallBestRecommendation: first.review?.overallBestRecommendation,\n    overallReason: first.review?.overallReason,\n    otherFileRecommendations: first.review?.otherFileRecommendations ?? first.extraction?.otherFileRecommendations ?? [],\n    syncStatus: 'Every applied change used originalExtractedCode exactly matched by Agent 1 before update. GitHub file uploads completed for this batch; PR creation is next.',\n    pullRequestPayload,\n    pullRequest: null\n  }\n}];"
+      },
+      "id": "51ce2305-81c1-47a7-b3c1-463e4ef6f95b",
+      "name": "Build Updated Response",
+      "type": "n8n-nodes-base.code",
+      "position": [2272, 4128],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "formTitle": "GCP Cost Optimisation Workflow",
+        "formDescription": "Submit the git and project information",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Project Name",
+              "placeholder": "YOUR-GCP-PROJECT-ID",
+              "defaultValue": "YOUR-GCP-PROJECT-ID",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "owner",
+              "placeholder": "YOUR-GITHUB-ORG",
+              "defaultValue": "YOUR-GITHUB-ORG",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "repo",
+              "placeholder": "YOUR-GITHUB-REPO",
+              "defaultValue": "YOUR-GITHUB-REPO",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "branch",
+              "placeholder": "feature/your-branch",
+              "defaultValue": "feature/your-branch"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [-3264, 4224],
+      "id": "de65e785-f7e2-4c4f-8e2f-5658af9d4b58",
+      "name": "Input Details",
+      "webhookId": "YOUR-FORM-TRIGGER-WEBHOOK-ID"
+    },
+    {
+      "parameters": {
+        "url": "=https://compute.googleapis.com/compute/v1/projects/{{ $json['Project Name'] }}/aggregated/instances?maxResults=3",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-3040, 4224],
+      "id": "a2eae91a-30e4-4f9b-a556-bc14d1098be7",
+      "name": "Connect to GCP Project",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "YOUR_GCP_OAUTH2_CREDENTIAL_ID",
+          "name": "YOUR_GCP_OAUTH2_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const raw = item.json.output ?? item.json.text ?? '';\n\n  if (typeof raw !== 'string' || !raw.trim()) {\n    return {\n      json: {\n        parse_error: true,\n        reason: 'Missing output/text',\n        keys: Object.keys(item.json),\n      }\n    };\n  }\n\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  if (!match) {\n    return { json: { parse_error: true, reason: 'No JSON object found', raw } };\n  }\n\n  try {\n    const obj = JSON.parse(match[0]);\n    return {\n      json: {\n        project_id: obj.project_id ?? '',\n        vm_name: obj.vm_name ?? '',\n        zone: obj.zone ?? '',\n        current_type: obj.current_type ?? '',\n        recommended_type: obj.recommended_type ?? '',\n        optimisation_reason: obj.optimisation_reason ?? '',\n      }\n    };\n  } catch (e) {\n    return { json: { parse_error: true, reason: 'JSON.parse failed', raw: match[0] } };\n  }\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-2240, 4320],
+      "id": "c19b1a27-6521-471f-8964-02cd4a7a4e50",
+      "name": "VM Optimization Recommendation & Reason"
+    },
+    {
+      "parameters": {
+        "url": "=https://YOUR-GITHUB-ENTERPRISE-HOST/api/v3/repos/{{ $('Input Details').item.json.owner }}/{{ $('Input Details').item.json.repo }}/contents/?ref={{ $('Input Details').item.json.branch }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-2016, 4320],
+      "id": "5fdc932f-dc18-49ea-b519-27235bbd8521",
+      "name": "Read the Github Repo w.r.t Project",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "YOUR_GITHUB_BASIC_AUTH_CREDENTIAL_ID",
+          "name": "YOUR_GITHUB_BASIC_AUTH_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(item =>\n  item.json.type === 'dir' &&\n  item.json.name === $('Input Details').item.json[\"Project Name\"]\n);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1792, 4320],
+      "id": "8e10c6b9-640e-4af4-8742-2d55be0d14be",
+      "name": "Filter out required files/directories from project folder"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-1568, 4320],
+      "id": "86b851c7-b3d3-46f5-8d5a-20f0cbed1ed6",
+      "name": "Parse through the Github URL",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "YOUR_GITHUB_BASIC_AUTH_CREDENTIAL_ID",
+          "name": "YOUR_GITHUB_BASIC_AUTH_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const form = $('Input Details').first().json;\nconst code = $('VM Optimization Recommendation & Reason').first().json;\n\nreturn $input.all()\n  .filter(i => i.json.type === 'file' && i.json.url)\n  .map(i => ({\n    json: {\n      name: i.json.name,\n      path: i.json.path,\n      url: i.json.url,\n      projectName: form['Project Name'] ?? '',\n      vmNameInput: code.vmNameInput ?? code['vm_name'] ?? '',\n      currentTypeInput: code.currentTypeInput ?? code['current_type'] ?? '',\n      recommendedTypeInput: code.recommendedTypeInput ?? code['recommended_type'] ?? ''\n    }\n  }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1360, 4320],
+      "id": "45d951fb-1a9d-4a28-b414-fee2deaca46c",
+      "name": "Create one O/P record per file"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "n8n"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 10,
+              "batchInterval": 400
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-1120, 4384],
+      "id": "f7ac44bc-17ff-4005-9c60-316ae8b26aab",
+      "name": "Read contents of the file matching the VM details",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "YOUR_GITHUB_BASIC_AUTH_CREDENTIAL_ID",
+          "name": "YOUR_GITHUB_BASIC_AUTH_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [-896, 4320],
+      "id": "a36399de-bb12-458a-9abe-e0f05a6c5809",
+      "name": "Combine the VM & File details"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst first = items.map(i => i.json || {}).find(j => j.vmNameInput || j.projectName) || {};\n \nfunction toList(value) {\n  return String(value || '')\n    .split(/[,;\\n]/)\n    .map(s => s.trim())\n    .filter(Boolean);\n}\n \nfunction extractMIGName(vmName) {\n  return String(vmName || '')\n    .trim()\n    .replace(/(?:[-_\\s]instance)?-[0-9a-z]+$|(?:[-_\\s]instance)$/i, '');\n}\n \nfunction decodeContent(j) {\n  const content = j?.content || '';\n  if (!content) return '';\n  if (String(j.encoding || '').toLowerCase() === 'base64') {\n    try {\n      return Buffer.from(content.replace(/\\n/g, ''), 'base64').toString('utf8');\n    } catch {\n      return '';\n    }\n  }\n  return content;\n}\n \nconst projectName = String(first.projectName || '');\nconst vmNames = toList(first.vmNameInput || '');\n \nif (!vmNames.length) {\n  return [{\n    json: {\n      error: 'No VM names found',\n      projectName,\n      totalItems: items.length,\n      sampleKeys: Object.keys(items[0]?.json || {})\n    }\n  }];\n}\n \nconst files = items\n  .map((item, idx) => {\n    const j = item.json || {};\n    return {\n      name: j.path || j.name || `file_${idx}`,\n      text: decodeContent(j),\n    };\n  })\n  .filter(f => f.text.length > 0);\n \nreturn vmNames.map(vmName => {\n  const migName = extractMIGName(vmName);\n \n  const matchedFiles = files\n    .filter(file => {\n      const contentLower = file.text.toLowerCase();\n      const vmMatch = vmName && contentLower.includes(vmName.toLowerCase());\n      const migMatch = migName && contentLower.includes(migName.toLowerCase());\n      return vmMatch || migMatch;\n    })\n    .map(f => f.name);\n \n  const unique = [...new Set(matchedFiles)];\n \n  return {\n    json: {\n      vmName,\n      project: projectName,\n      mig: migName,\n      fileCount: unique.length,\n      files: unique,\n      fileNamesCsv: unique.join(', ')\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-672, 4320],
+      "id": "72deba28-18f7-439f-aa9b-5283e781385a",
+      "name": "List the files based on VMs and recommendation"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const raw = item.json.output ?? item.json.text ?? '';\n\n  if (typeof raw !== 'string' || !raw.trim()) {\n    return {\n      json: {\n        parse_error: true,\n        reason: 'Missing output/text',\n        keys: Object.keys(item.json),\n      }\n    };\n  }\n\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  if (!match) {\n    return { json: { parse_error: true, reason: 'No JSON object found', raw } };\n  }\n\n  function normalizeText(value) {\n    return value === undefined || value === null ? '' : String(value).trim();\n  }\n  function inferTargetName(vmName, explicitTarget) {\n    const target = normalizeText(explicitTarget);\n    if (target) return target;\n    const name = normalizeText(vmName);\n    if (!name) return '';\n    const knownPatterns = [\n      /^(.*?-mig)-instance-[a-z0-9]+$/i,\n      /^(.*?-mig)-instanc-[a-z0-9-]+$/i,\n      /^(.*?)-instance-[a-z0-9]+$/i\n    ];\n    for (const pattern of knownPatterns) {\n      const matched = name.match(pattern);\n      if (matched?.[1]) return matched[1];\n    }\n    return name;\n  }\n\n  try {\n    const obj = JSON.parse(match[0]);\n    const vmName = normalizeText(obj.vm_name ?? obj.instance_name ?? obj.instanceName ?? obj.name);\n    return {\n      json: {\n        vm_name: vmName,\n        target_name: inferTargetName(vmName, obj.target_name ?? obj.targetName ?? obj.mig_name ?? obj.resource_name),\n        zone: normalizeText(obj.zone),\n        current_type: normalizeText(obj.current_type ?? obj.old_machine_type ?? obj.currentMachineType),\n        recommended_type: normalizeText(obj.recommended_type ?? obj.new_machine_type ?? obj.recommendedMachineType),\n        optimisation_reason: normalizeText(obj.optimisation_reason ?? obj.optimization_reason),\n      }\n    };\n  } catch (e) {\n    return { json: { parse_error: true, reason: 'JSON.parse failed', raw: match[0] } };\n  }\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-448, 4096],
+      "id": "68a9fe14-6b95-44f0-a2a8-ee09c5b00011",
+      "name": "Format Agent's output"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [-224, 4224],
+      "id": "b3254982-d014-4915-9763-bde959cdecb0",
+      "name": "Merge both o/p from agent and list of files"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incomingItems = $input.all();\nconst mergedInputs = incomingItems.map(item => item.json ?? item);\nconst formInput = $items('Input Details')[0]?.json ?? {};\nconst bodyInput = mergedInputs.find(item => item?.body?.instances || item?.body?.files || item?.body?.owner || item?.body?.repo)?.body ?? mergedInputs.find(item => item?.instances || item?.filesByInstance || item?.files_by_instance || item?.owner || item?.repo) ?? {};\nconst formData = {\n  ProjectName: formInput['Project Name'],\n  projectName: formInput['Project Name'],\n  project_name: formInput['Project Name'],\n  owner: formInput.owner,\n  repo: formInput.repo,\n  branch: formInput.branch,\n  baseBranch: formInput.baseBranch ?? formInput.base_branch ?? formInput['Base Branch']\n};\nconst webhookInput = { ...formData, ...bodyInput };\nconst recommendationInputs = mergedInputs.flatMap(item => item?.body?.instances ? [item.body, ...item.body.instances] : [item]);\nconst rawGlobalFiles = webhookInput.files ?? webhookInput.file_list ?? webhookInput.filePaths ?? webhookInput.file_paths;\nconst {\n  recommendations: _ignoredRecommendations,\n  recommendation: _ignoredRecommendation,\n  recommendationText: _ignoredRecommendationText,\n  recommendation_text: _ignoredRecommendationTextSnake,\n  ...webhookData\n} = webhookInput;\n\nfunction normalizeMachineType(value) {\n  return value === undefined || value === null || value === '' ? undefined : String(value).trim();\n}\nfunction normalizeText(value) {\n  return value === undefined || value === null || value === '' ? undefined : String(value).trim();\n}\nfunction flatten(value) {\n  if (Array.isArray(value)) return value.flatMap(flatten);\n  return value === undefined || value === null ? [] : [value];\n}\nfunction normalizeFilePath(value) {\n  return String(value ?? '').trim().replace(/\\\\/g, '/').replace(/^\\/+/, '').replace(/\\/+/g, '/');\n}\nfunction normalizeFileList(value) {\n  const output = [];\n  for (const entry of flatten(value)) {\n    if (typeof entry === 'string') {\n      for (const part of entry.split(',')) {\n        const filePath = normalizeFilePath(part);\n        if (filePath) output.push(filePath);\n      }\n    } else if (entry && typeof entry === 'object') {\n      const nestedFiles = entry.files ?? entry.file_list ?? entry.filePaths ?? entry.file_paths ?? entry.paths ?? entry.path;\n      if (nestedFiles !== undefined) output.push(...normalizeFileList(nestedFiles));\n    }\n  }\n  return [...new Set(output)];\n}\nfunction isUnsafeRepoPath(filePath) {\n  const parts = filePath.split('/');\n  return !filePath || /^[A-Za-z]:/.test(filePath) || /^[a-z][a-z0-9+.-]*:/i.test(filePath) || filePath.startsWith('~') || parts.some(part => part === '..' || part === '.');\n}\nfunction normalizeLookupKey(value) {\n  return normalizeText(value)?.toLowerCase().replace(/[^a-z0-9]/g, '');\n}\nfunction instanceNameFrom(source) {\n  return normalizeText(source?.vm_name ?? source?.instance_name ?? source?.instanceName ?? source?.InstanceName ?? source?.vm ?? source?.instance ?? source?.name);\n}\nfunction targetNameFrom(source, fallback) {\n  return normalizeText(source?.targetName ?? source?.target_name ?? source?.module ?? source?.mig_name ?? source?.resource_name ?? fallback);\n}\nfunction hasResizeFields(source) {\n  if (!source || typeof source !== 'object') return false;\n  const hasInstance = Boolean(instanceNameFrom(source));\n  const hasCurrent = Boolean(source.current_type ?? source.old_machine_type ?? source.OldMachineType ?? source.oldMachineType ?? source.currentMachineType ?? source.current_machine_type ?? source.source_machine_type ?? source.from_machine_type ?? source.currentType);\n  const hasTarget = Boolean(source.recommended_type ?? source.new_machine_type ?? source.NewMachineType ?? source.newMachineType ?? source.recommended_machine_type ?? source.target_machine_type ?? source.to_machine_type ?? source.recommendedType ?? source.targetType ?? source.targetMachineType);\n  return hasInstance && (hasCurrent || hasTarget);\n}\nfunction collectResizeInputs(source) {\n  const candidates = [];\n  for (const value of flatten(source)) {\n    const candidate = value?.json ?? value;\n    if (hasResizeFields(candidate)) candidates.push(candidate);\n    for (const nested of flatten(candidate?.body?.recommendations ?? candidate?.recommendations ?? candidate?.recommendation ?? candidate?.resizeInputs ?? candidate?.resize_inputs ?? candidate?.vmResizeInputs ?? candidate?.vm_resize_inputs ?? candidate?.items ?? candidate?.data)) {\n      if (hasResizeFields(nested)) candidates.push(nested);\n    }\n  }\n  return candidates;\n}\nfunction collectFileGroups(source, inheritedName) {\n  const groups = [];\n  function visit(value, nameFromKey) {\n    if (value === undefined || value === null) return;\n    if (Array.isArray(value)) {\n      for (const nested of value) visit(nested, nameFromKey);\n      return;\n    }\n    if (typeof value === 'string') {\n      const files = normalizeFileList(value);\n      if (nameFromKey && files.length) groups.push({ instanceName: normalizeText(nameFromKey), targetName: normalizeText(nameFromKey), files });\n      return;\n    }\n    if (typeof value !== 'object') return;\n    const explicitFiles = value.files ?? value.file_list ?? value.filePaths ?? value.file_paths ?? value.paths;\n    const explicitName = instanceNameFrom(value) ?? normalizeText(value.key ?? value.instance_key ?? nameFromKey);\n    const explicitTarget = targetNameFrom(value, explicitName ?? nameFromKey);\n    if (explicitFiles !== undefined) {\n      const files = normalizeFileList(explicitFiles);\n      if (files.length) groups.push({ instanceName: explicitName, targetName: explicitTarget, files });\n    }\n    const metadataKeys = new Set(['files', 'file_list', 'filePaths', 'file_paths', 'paths', 'path', 'vm_name', 'instance_name', 'instanceName', 'InstanceName', 'vm', 'instance', 'name', 'targetName', 'target_name', 'module', 'mig_name', 'resource_name', 'current_type', 'recommended_type', 'old_machine_type', 'new_machine_type', 'recommendations', 'recommendation']);\n    for (const [key, nested] of Object.entries(value)) {\n      if (metadataKeys.has(key)) continue;\n      if (Array.isArray(nested) || typeof nested === 'string') visit(nested, key);\n      else if (nested && typeof nested === 'object' && (nested.files ?? nested.file_list ?? nested.filePaths ?? nested.file_paths ?? nested.paths) !== undefined) visit({ ...nested, instance_name: nested.instance_name ?? nested.instanceName ?? key }, key);\n    }\n  }\n  visit(source, inheritedName);\n  return groups.filter(group => group.files?.length);\n}\nfunction addFilesForKey(map, key, files) {\n  const normalizedKey = normalizeLookupKey(key);\n  if (!normalizedKey || !files.length) return;\n  const existing = map.get(normalizedKey) ?? [];\n  map.set(normalizedKey, [...new Set([...existing, ...files])]);\n}\nfunction getDirectRecommendationFiles(recommendationObject) {\n  return normalizeFileList(recommendationObject.files ?? recommendationObject.file_list ?? recommendationObject.filePaths ?? recommendationObject.file_paths ?? recommendationObject.paths ?? recommendationObject.files_to_change ?? recommendationObject.filesToChange);\n}\n\nconst rawRecommendationObjects = collectResizeInputs(recommendationInputs).filter(item => item && typeof item === 'object' && !item.parse_error);\nif (!rawRecommendationObjects.length) throw new Error('Missing resize input. Expected vm_name, current_type, and recommended_type.');\n\nconst globalFiles = normalizeFileList(rawGlobalFiles);\nconst fileGroups = [\n  ...collectFileGroups(webhookInput.instances),\n  ...collectFileGroups(webhookInput.instanceList),\n  ...collectFileGroups(webhookInput.instance_list),\n  ...collectFileGroups(webhookInput.vmInstances),\n  ...collectFileGroups(webhookInput.vm_instances),\n  ...collectFileGroups(webhookInput.instanceFiles),\n  ...collectFileGroups(webhookInput.instance_files),\n  ...collectFileGroups(webhookInput.filesByInstance),\n  ...collectFileGroups(webhookInput.files_by_instance),\n  ...collectFileGroups(webhookInput.recommendationFiles),\n  ...collectFileGroups(webhookInput.recommendation_files),\n  ...collectFileGroups(webhookInput.vmFiles),\n  ...collectFileGroups(webhookInput.vm_files),\n  ...collectFileGroups(webhookInput.targetFiles),\n  ...collectFileGroups(webhookInput.target_files),\n  ...collectFileGroups(webhookInput.targets),\n  ...collectFileGroups(rawGlobalFiles)\n];\nconst filesByInstanceKey = new Map();\nfor (const group of fileGroups) {\n  addFilesForKey(filesByInstanceKey, group.instanceName, group.files);\n  addFilesForKey(filesByInstanceKey, group.targetName, group.files);\n}\nconst fallbackFilesForAllRecommendations = globalFiles.length ? globalFiles : (fileGroups.length === 1 ? normalizeFileList(fileGroups[0].files) : []);\nconst availableFileMappingKeys = [...filesByInstanceKey.keys()];\nfunction collectMappedFiles(instanceName, targetName) {\n  const lookupKeys = [normalizeLookupKey(instanceName), normalizeLookupKey(targetName)].filter(Boolean);\n  const matchedFiles = [];\n  for (const lookupKey of lookupKeys) {\n    matchedFiles.push(...(filesByInstanceKey.get(lookupKey) ?? []));\n  }\n  if (matchedFiles.length) return matchedFiles;\n  const fuzzyMatches = [];\n  for (const lookupKey of lookupKeys) {\n    if (lookupKey.length < 8) continue;\n    for (const [candidateKey, files] of filesByInstanceKey.entries()) {\n      if (candidateKey.length < 8) continue;\n      if (lookupKey.includes(candidateKey) || candidateKey.includes(lookupKey)) fuzzyMatches.push({ candidateKey, files });\n    }\n  }\n  const uniqueFuzzyMatches = [...new Map(fuzzyMatches.map(match => [match.candidateKey, match])).values()];\n  if (uniqueFuzzyMatches.length === 1) return uniqueFuzzyMatches[0].files;\n  return fallbackFilesForAllRecommendations;\n}\n\nconst rawEnvRoot = normalizeFilePath(webhookInput.repoRoot ?? webhookInput.repo_root ?? webhookInput.envRoot ?? webhookInput.env_root);\nconst envRootCandidate = rawEnvRoot.endsWith('/') ? rawEnvRoot.slice(0, -1) : rawEnvRoot;\nconst repositoryValue = webhookInput.repository;\nconst repositoryObject = repositoryValue && typeof repositoryValue === 'object' ? repositoryValue : {};\nconst repositoryFullName = typeof repositoryValue === 'string' ? normalizeText(repositoryValue) : normalizeText(repositoryObject.full_name);\nconst repositoryOwner = normalizeText(repositoryObject.owner?.login ?? repositoryObject.owner?.name ?? repositoryObject.owner);\nconst repositoryName = normalizeText(repositoryObject.name);\nlet owner = normalizeText(webhookInput.owner ?? webhookInput.org ?? webhookInput.organization ?? repositoryOwner);\nlet repo = normalizeText(webhookInput.repo ?? webhookInput.repository_name ?? webhookInput.repoName ?? repositoryName ?? repositoryFullName ?? envRootCandidate);\nif (repo?.includes('/')) {\n  const parts = repo.split('/').filter(Boolean);\n  if (parts.length === 2) {\n    if (!owner) owner = parts[0];\n    repo = parts[1];\n  }\n}\nif (!owner) throw new Error('Missing GitHub owner/org.');\nif (!repo) throw new Error('Missing GitHub repository.');\nconst baseBranch = normalizeText(webhookInput.baseBranch ?? webhookInput.base_branch ?? webhookInput.targetBranch ?? webhookInput.target_branch) ?? 'main';\nlet branch = normalizeText(webhookInput.branch ?? webhookInput.ref ?? webhookInput.head ?? webhookInput.sourceBranch ?? webhookInput.source_branch) ?? 'feature/cost-optimization';\nbranch = branch.replace(/^refs\\/heads\\//, '');\nif (branch === baseBranch) throw new Error('For PR creation, branch/head must be different from baseBranch. Received both as ' + branch + '.');\n\nconst machineTypePattern = /\\b(?:custom-\\d+-\\d+|[a-z][a-z0-9]*-[a-z0-9]+(?:-[a-z0-9]+){0,3})\\b/g;\nconst seenRecommendationKeys = new Set();\nconst recommendations = [];\nconst skippedUnmappedRecommendations = [];\nlet rawRecommendationIndex = -1;\nfor (const recommendationObject of rawRecommendationObjects) {\n  rawRecommendationIndex += 1;\n  const recommendationText = JSON.stringify(recommendationObject);\n  const machineTypes = Array.from(recommendationText.matchAll(machineTypePattern), match => match[0]);\n  const instanceName = instanceNameFrom(recommendationObject);\n  const projectName = normalizeText(recommendationObject.ProjectName ?? recommendationObject.projectName ?? recommendationObject.project_name ?? recommendationObject.project ?? webhookInput.ProjectName ?? webhookInput.projectName ?? webhookInput.project_name ?? webhookInput.project);\n  const currentMachineType = normalizeMachineType(recommendationObject.current_type ?? recommendationObject.old_machine_type ?? recommendationObject.OldMachineType ?? recommendationObject.oldMachineType ?? recommendationObject.currentMachineType ?? recommendationObject.current_machine_type ?? recommendationObject.source_machine_type ?? recommendationObject.from_machine_type ?? recommendationObject.currentType ?? (machineTypes.length > 1 ? machineTypes[0] : undefined));\n  const targetMachineType = normalizeMachineType(recommendationObject.recommended_type ?? recommendationObject.new_machine_type ?? recommendationObject.NewMachineType ?? recommendationObject.newMachineType ?? recommendationObject.recommended_machine_type ?? recommendationObject.target_machine_type ?? recommendationObject.to_machine_type ?? recommendationObject.recommendedType ?? recommendationObject.targetType ?? recommendationObject.targetMachineType ?? machineTypes.at(-1));\n  let targetName = targetNameFrom(recommendationObject, instanceName);\n  if (!targetName) targetName = recommendationText.match(/(?:vm|instance|module|mig|resource)\\s*[:=]?\\s*[\"']?([A-Za-z0-9_.-]+)/i)?.[1];\n  const recommendationIndex = recommendations.length;\n  if (!instanceName) throw new Error('Resize input ' + (recommendationIndex + 1) + ' is missing vm_name.');\n  if (!currentMachineType) throw new Error('Resize input ' + (recommendationIndex + 1) + ' is missing current_type.');\n  if (!targetMachineType) throw new Error('Resize input ' + (recommendationIndex + 1) + ' is missing recommended_type.');\n  const recommendationKey = [projectName ?? '', instanceName, currentMachineType, targetMachineType, recommendationObject.zone ?? ''].join('\\u0000');\n  if (seenRecommendationKeys.has(recommendationKey)) continue;\n  seenRecommendationKeys.add(recommendationKey);\n  const mappedFiles = collectMappedFiles(instanceName, targetName);\n  const recommendationFiles = [...new Set(mappedFiles.map(normalizeFilePath).filter(Boolean))];\n  const invalidFiles = recommendationFiles.filter(isUnsafeRepoPath);\n  if (invalidFiles.length) throw new Error(instanceName + ': files must be repo-relative paths without drive letters, URL schemes, or traversal segments. Invalid: ' + invalidFiles.join(', '));\n  if (!recommendationFiles.length) {\n    const availableKeys = availableFileMappingKeys.length ? availableFileMappingKeys.join(', ') : 'none';\n    const isNoChangeRecommendation = currentMachineType === targetMachineType;\n    const recommendedAction = recommendationObject.action ?? recommendationObject.recommendedAction ?? (isNoChangeRecommendation ? 'no-change' : 'resize');\n    skippedUnmappedRecommendations.push({\n      sourceRecommendationIndex: rawRecommendationIndex,\n      instanceName,\n      projectName,\n      targetName,\n      currentMachineType,\n      targetMachineType,\n      recommendedAction,\n      files: [],\n      availableWebhookMappingKeys: availableFileMappingKeys,\n      reason: 'No matching mapped file was supplied for this first-agent recommendation.'\n    });\n    continue;\n  }\n  const isNoChangeRecommendation = currentMachineType === targetMachineType;\n  const recommendedAction = recommendationObject.action ?? recommendationObject.recommendedAction ?? (isNoChangeRecommendation ? 'no-change' : 'resize');\n  const normalizedRecommendationObject = {\n    instance_name: instanceName,\n    old_machine_type: currentMachineType,\n    new_machine_type: targetMachineType,\n    files: recommendationFiles,\n    ...(projectName ? { project_name: projectName } : {}),\n    ...(recommendationObject.zone ? { zone: recommendationObject.zone } : {}),\n    ...(recommendationObject.optimisation_reason ? { optimisation_reason: recommendationObject.optimisation_reason } : {}),\n    ...(recommendationObject.optimization_reason ? { optimization_reason: recommendationObject.optimization_reason } : {})\n  };\n  recommendations.push({ recommendationIndex, recommendationObject: normalizedRecommendationObject, recommendationText: JSON.stringify(normalizedRecommendationObject), instanceName, projectName, targetName, currentMachineType, targetMachineType, recommendedAction, isNoChangeRecommendation, files: recommendationFiles, instanceKey: normalizeLookupKey(instanceName) });\n}\n\nconst mappedWebhookFiles = [...new Set(fileGroups.flatMap(group => normalizeFileList(group.files)).map(normalizeFilePath).filter(Boolean))];\nconst normalizedFiles = [...new Set((recommendations.length ? recommendations.flatMap(recommendation => recommendation.files) : mappedWebhookFiles).map(normalizeFilePath).filter(Boolean))];\nif (!normalizedFiles.length) throw new Error('No mapped files were available for GitHub fetch.');\nconst instanceFileGroups = recommendations.map(recommendation => ({ recommendationIndex: recommendation.recommendationIndex, instanceName: recommendation.instanceName, targetName: recommendation.targetName, files: recommendation.files }));\nconst fileToRecommendationIndexes = Object.fromEntries(normalizedFiles.map(filePath => [filePath, recommendations.filter(recommendation => recommendation.files.includes(filePath)).map(recommendation => recommendation.recommendationIndex)]));\n\nreturn normalizedFiles.map((filePath, downloadIndex) => ({\n  json: {\n    ...webhookData,\n    apiBase: webhookInput.apiBase ?? 'https://YOUR-GITHUB-ENTERPRISE-HOST/api/v3',\n    owner,\n    repo,\n    branch,\n    baseBranch,\n    filePath,\n    downloadIndex,\n    totalInputFiles: normalizedFiles.length,\n    allInputFiles: normalizedFiles,\n    fileToRecommendationIndexes,\n    fileRecommendationIndexes: fileToRecommendationIndexes[filePath] ?? [],\n    instanceFileGroups,\n    filePathValidation: 'repo-relative-per-instance-files-no-root-prefix-restriction',\n    recommendations,\n    rawRecommendationCount: rawRecommendationObjects.length,\n    mappedRecommendationCount: recommendations.length,\n    skippedUnmappedRecommendations,\n    skippedUnmappedRecommendationCount: skippedUnmappedRecommendations.length,\n    noMappedRecommendations: recommendations.length === 0,\n    allowBetterMachineType: webhookInput.allowBetterMachineType ?? true,\n    agent1PromptOverride: webhookInput.agent1PromptOverride ?? webhookInput.extractionPrompt,\n    agent2PromptOverride: webhookInput.agent2PromptOverride ?? webhookInput.reviewPrompt,\n    commitMessage: webhookInput.commitMessage ?? 'Apply AI-reviewed GCP VM resize recommendations',\n    pullRequestTitle: webhookInput.pullRequestTitle ?? webhookInput.prTitle ?? 'Apply AI-reviewed GCP VM resize recommendations',\n    pullRequestBody: webhookInput.pullRequestBody ?? webhookInput.prBody\n  }\n}));"
+      },
+      "id": "5d673fb8-c3c0-4a6b-878f-db2adf7c9718",
+      "name": "Prepare Input Items",
+      "type": "n8n-nodes-base.code",
+      "position": [0, 4224],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "={{$json.apiBase + '/repos/' + $json.owner + '/' + $json.repo + '/contents/' + encodeURIComponent($json.filePath).replace(/%2F/g, '/') + '?ref=' + encodeURIComponent($json.branch)}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c30bcbca-2872-4e30-940f-b6cf17ef95a8",
+      "name": "Get File From GitHub",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [224, 4224],
+      "typeVersion": 4.2,
+      "credentials": {
+        "githubApi": {
+          "id": "YOUR_GITHUB_API_CREDENTIAL_ID",
+          "name": "YOUR_GITHUB_API_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fetchedItems = $input.all();\nconst sourceItems = $items('Prepare Input Items');\nif (!sourceItems.length) throw new Error('Prepare Input Items did not produce any file download items.');\nif (!fetchedItems.length) throw new Error('No files were fetched from GitHub.');\nconst common = sourceItems[0].json;\nconst expectedFileCount = common.allInputFiles.length;\nif (fetchedItems.length !== expectedFileCount) {\n  throw new Error('Expected ' + expectedFileCount + ' downloaded files but received ' + fetchedItems.length + '.');\n}\n\nconst files = fetchedItems.map((item, index) => {\n  const source = sourceItems[index]?.json;\n  if (!source?.filePath) throw new Error('Missing source file metadata for downloaded item index ' + index + '.');\n  const githubFile = item.json;\n  if (!githubFile.content || !githubFile.sha) throw new Error(source.filePath + ': GitHub response missing content or sha.');\n  return {\n    filePath: source.filePath,\n    downloadIndex: source.downloadIndex,\n    recommendationIndexes: source.fileRecommendationIndexes ?? [],\n    githubSha: githubFile.sha,\n    githubHtmlUrl: githubFile.html_url,\n    fileContent: Buffer.from(String(githubFile.content).replace(/\\s/g, ''), 'base64').toString('utf8')\n  };\n});\n\nconst seenFilePaths = new Set();\nconst duplicateFilePaths = [];\nfor (const file of files) {\n  if (seenFilePaths.has(file.filePath)) duplicateFilePaths.push(file.filePath);\n  seenFilePaths.add(file.filePath);\n}\nif (duplicateFilePaths.length) throw new Error('Duplicate downloaded files found: ' + duplicateFilePaths.join(', '));\nconst missingFiles = common.allInputFiles.filter(filePath => !seenFilePaths.has(filePath));\nif (missingFiles.length) throw new Error('These input files were not downloaded: ' + missingFiles.join(', '));\n\nconst filesForPrompt = files.map((file, index) => [\n  'DOWNLOADED FILE ' + (index + 1) + ' OF ' + files.length,\n  'FILE PATH: ' + file.filePath,\n  'RECOMMENDATION INDEXES ALLOWED IN THIS FILE: ' + JSON.stringify(file.recommendationIndexes),\n  '-----BEGIN FILE CONTENT-----',\n  file.fileContent,\n  '-----END FILE CONTENT-----'\n].join('\\n')).join('\\n\\n');\nconst recommendationFileMap = common.recommendations.map(recommendation => ({\n  recommendationIndex: recommendation.recommendationIndex,\n  instanceName: recommendation.instanceName,\n  targetName: recommendation.targetName,\n  currentMachineType: recommendation.currentMachineType,\n  targetMachineType: recommendation.targetMachineType,\n  files: recommendation.files\n}));\nconst basePrompt = [\n  'ROLE: You are AI Agent 1, the Multi-File Useful Code Extraction and Context Discovery Agent for a GCP Terraform resize workflow.',\n  '',\n  'MISSION:',\n  'You receive many VM resize recommendations and ALL repository files supplied by the webhook. Each recommendation has its own files array. Inspect every downloaded file together and extract only exact Terraform/HCL snippets from files listed for that same recommendation/instance. Do not modify code.',\n  '',\n  'DOWNLOADED FILE COUNT: ' + files.length,\n  '',\n  'KEY RULES:',\n  '1. Consider every downloaded file before deciding where code changes are required.',\n  '2. A recommendation may map to a module block in one file and a variable assignment in another file. Extract the snippet that actually owns the machine_type value.',\n  '3. If a module uses var.some_machine_type and a supplied tfvars file owns the value, prefer the tfvars assignment as the update snippet.',\n  '4. If multiple recommendations affect the same file, return separate extraction entries for each exact snippet.',\n  '5. If a supplied file is irrelevant for that recommendation, do not return an extraction for it.',\n  '6. extractedCode must be copied byte-for-byte from the supplied file and occur exactly once in that file.',\n  '7. For OldMachineType == NewMachineType, normally return no update unless the code clearly contradicts the recommendation.',\n  '8. Do not invent files, resource names, values, or code.',\n  '9. Never use a file for a recommendation unless that file appears in that recommendation files array.',\n  '10. If RECOMMENDATIONS is an empty array, return strict JSON with empty extractions, skippedRecommendations, and otherFileRecommendations.',\n  '11. When instanceName is a generated MIG VM and targetName matches a mig_name in a supplied file, prefer the active module block that owns the quoted machine_type assignment.',\n  '12. If targetName does not match any module, resource, variable, or mig_name evidence in the supplied file, skip that recommendation.',\n  '',\n  'PER-INSTANCE RECOMMENDATION FILE MAP:',\n  JSON.stringify(recommendationFileMap, null, 2),\n  '',\n  'RETURN STRICT JSON ONLY:',\n  '{',\n  '  \"extractions\": [...],',\n  '  \"skippedRecommendations\": [...],',\n  '  \"otherFileRecommendations\": [...],',\n  '  \"overallReason\": \"summary\"',\n  '}',\n  '',\n  'INPUT FILES DOWNLOADED AND INCLUDED BELOW:',\n  common.allInputFiles.map(file => '- ' + file).join('\\n'),\n  '',\n  'RECOMMENDATIONS:',\n  JSON.stringify(common.recommendations, null, 2),\n  '',\n  'SUPPLIED DOWNLOADED FILE CONTENTS:',\n  filesForPrompt\n].join('\\n');\nconst extractionPrompt = [\n  common.agent1PromptOverride ? 'CALLER EXTRA INSTRUCTIONS FOR AGENT 1:' : '',\n  common.agent1PromptOverride ? String(common.agent1PromptOverride) : '',\n  common.agent1PromptOverride ? 'END CALLER EXTRA INSTRUCTIONS.' : '',\n  basePrompt\n].filter(line => line !== '').join('\\n\\n');\nreturn [{ json: { ...common, downloadedFileCount: files.length, files, recommendationFileMap, extractionPrompt } }];"
+      },
+      "id": "20bfea5e-b475-4b28-bcf4-8a15af605b34",
+      "name": "Build Multi File Context",
+      "type": "n8n-nodes-base.code",
+      "position": [448, 4224],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "function parseAgentJson(rawOutput, nodeName) {\n  const text = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput ?? {});\n  const stripped = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();\n  try { return JSON.parse(stripped); } catch (error) {\n    const match = stripped.match(/\\{[\\s\\S]*\\}/);\n    if (match) return JSON.parse(match[0]);\n    throw new Error(nodeName + ' did not return valid JSON: ' + text);\n  }\n}\nfunction textValue(value) {\n  return value === undefined || value === null ? '' : String(value).trim();\n}\nfunction quotedAssignment(line, key) {\n  const trimmedLine = textValue(line);\n  if (!trimmedLine.startsWith(key)) return '';\n  const equalsIndex = trimmedLine.indexOf('=');\n  if (equalsIndex < 0) return '';\n  const rawValue = trimmedLine.slice(equalsIndex + 1).trim();\n  const matchedValue = rawValue.match(/^\"([^\"]+)\"/);\n  return matchedValue?.[1] ?? '';\n}\nfunction exactMigSnippet(fileContent, targetName) {\n  const expectedTargetName = textValue(targetName);\n  if (!expectedTargetName) return null;\n  const lineFeed = String.fromCharCode(10);\n  const lines = String(fileContent ?? '').replaceAll(String.fromCharCode(13), '').split(lineFeed);\n  let moduleStartIndex = -1;\n  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {\n    const trimmedLine = textValue(lines[lineIndex]);\n    if (trimmedLine.startsWith('module \"') && trimmedLine.endsWith('{')) moduleStartIndex = lineIndex;\n    const migName = quotedAssignment(lines[lineIndex], 'mig_name');\n    if (migName !== expectedTargetName) continue;\n    for (let machineLineIndex = lineIndex + 1; machineLineIndex < lines.length; machineLineIndex++) {\n      const machineType = quotedAssignment(lines[machineLineIndex], 'machine_type');\n      if (!machineType) continue;\n      const snippetStartIndex = moduleStartIndex >= 0 ? moduleStartIndex : lineIndex;\n      const snippet = lines.slice(snippetStartIndex, machineLineIndex + 1).join(lineFeed);\n      return { snippet, machineType };\n    }\n  }\n  return null;\n}\nfunction addDeterministicMigExtractions(source, filesByPath, recommendationsByIndex, validatedExtractions) {\n  const existingExtractionKeys = new Set(validatedExtractions.map(extraction => extraction.recommendationIndex + '|' + extraction.filePath));\n  for (const recommendation of recommendationsByIndex.values()) {\n    if (validatedExtractions.some(extraction => extraction.recommendationIndex === recommendation.recommendationIndex)) continue;\n    const currentMachineType = textValue(recommendation.currentMachineType);\n    const targetMachineType = textValue(recommendation.targetMachineType);\n    const targetName = textValue(recommendation.targetName);\n    if (!currentMachineType || !targetMachineType || !targetName || currentMachineType === targetMachineType) continue;\n    for (const filePath of recommendation.files ?? []) {\n      const file = filesByPath[filePath];\n      if (!file?.fileContent) continue;\n      const exactMatch = exactMigSnippet(file.fileContent, targetName);\n      if (!exactMatch || exactMatch.machineType !== currentMachineType) continue;\n      const occurrenceCount = file.fileContent.split(exactMatch.snippet).length - 1;\n      if (occurrenceCount !== 1) continue;\n      const extractionKey = recommendation.recommendationIndex + '|' + filePath;\n      if (existingExtractionKeys.has(extractionKey)) continue;\n      existingExtractionKeys.add(extractionKey);\n      validatedExtractions.push({\n        recommendationIndex: recommendation.recommendationIndex,\n        projectName: recommendation.projectName ?? null,\n        instanceName: recommendation.instanceName,\n        filePath,\n        targetName,\n        currentMachineType: exactMatch.machineType,\n        targetMachineTypeFromRecommendation: targetMachineType,\n        bestMachineTypeCandidate: targetMachineType,\n        matchType: 'module-block',\n        shouldUpdateInThisFile: true,\n        extractedCode: exactMatch.snippet,\n        whyThisCodeIsUseful: 'Workflow exact mig_name match found the old machine_type in the owning module block after Agent 1 skipped it.',\n        evidence: ['mig_name = \"' + targetName + '\"', 'machine_type = \"' + exactMatch.machineType + '\"'],\n        ambiguities: [],\n        extractionConfidence: 'high',\n        deterministicExtraction: true,\n        filesForInstance: recommendation.files\n      });\n      break;\n    }\n  }\n}\nconst agentItems = $input.all();\nconst sourceItems = $items('Build Multi File Context');\nreturn agentItems.map((item, index) => {\n  const source = sourceItems[index].json;\n  const extraction = parseAgentJson(item.json.output ?? item.json.text ?? item.json, 'AI Agent 1');\n  const filesByPath = Object.fromEntries(source.files.map(file => [file.filePath, file]));\n  const recommendationsByIndex = new Map(source.recommendations.map(recommendation => [recommendation.recommendationIndex, recommendation]));\n  const rawExtractions = Array.isArray(extraction.extractions) ? extraction.extractions : [];\n  const validatedExtractions = [];\n  for (const candidate of rawExtractions) {\n    const filePath = candidate.filePath;\n    const extractedCode = String(candidate.extractedCode ?? candidate.usefulCode ?? '');\n    if (!candidate.shouldUpdateInThisFile && !extractedCode) continue;\n    if (!filePath || !filesByPath[filePath]) throw new Error('Agent 1 returned an extraction for a file that was not supplied: ' + filePath);\n    const recommendationIndex = Number(candidate.recommendationIndex);\n    const recommendation = recommendationsByIndex.get(recommendationIndex);\n    if (!recommendation) continue;\n    if (!recommendation.files.includes(filePath)) throw new Error(filePath + ': Agent 1 used a file not mapped to recommendation ' + recommendationIndex + '.');\n    if (!extractedCode) throw new Error(filePath + ': Agent 1 extraction is missing extractedCode.');\n    const occurrences = filesByPath[filePath].fileContent.split(extractedCode).length - 1;\n    if (occurrences !== 1) throw new Error(filePath + ': Agent 1 extractedCode must occur exactly once, found ' + occurrences + '.');\n    validatedExtractions.push({ ...candidate, recommendationIndex, filePath, extractedCode, instanceName: recommendation.instanceName, filesForInstance: recommendation.files });\n  }\n  addDeterministicMigExtractions(source, filesByPath, recommendationsByIndex, validatedExtractions);\n  const filesForReview = source.files.map((file, fileIndex) => [\n    'DOWNLOADED FILE ' + (fileIndex + 1) + ' OF ' + source.files.length,\n    'FILE PATH: ' + file.filePath,\n    'RECOMMENDATION INDEXES ALLOWED IN THIS FILE: ' + JSON.stringify(file.recommendationIndexes ?? []),\n    '-----BEGIN FILE CONTENT-----',\n    file.fileContent,\n    '-----END FILE CONTENT-----'\n  ].join('\\n')).join('\\n\\n');\n  const recommendationFileMap = source.recommendations.map(recommendation => ({ recommendationIndex: recommendation.recommendationIndex, instanceName: recommendation.instanceName, targetName: recommendation.targetName, files: recommendation.files }));\n  const reviewPrompt = [\n    'ROLE: You are AI Agent 2, the Multi-File Senior GCP Terraform Resize Reviewer.',\n    '',\n    'MISSION: Review all recommendations and Agent 1 extracted snippets. Decide which files require updates, choose the safest machine type, and update only exact extracted snippets.',\n    '',\n    'DOWNLOADED FILE COUNT: ' + source.files.length,\n    '',\n    'PER-INSTANCE RECOMMENDATION FILE MAP:',\n    JSON.stringify(recommendationFileMap, null, 2),\n    '',\n    'RETURN STRICT JSON ONLY:',\n    '{',\n    '  \"changes\": [...],',\n    '  \"otherFileRecommendations\": [...],',\n    '  \"overallBestRecommendation\": \"summary\",',\n    '  \"overallReason\": \"summary\"',\n    '}',\n    '',\n    'RECOMMENDATIONS:',\n    JSON.stringify(source.recommendations, null, 2),\n    '',\n    'VALIDATED AGENT 1 EXTRACTIONS:',\n    JSON.stringify(validatedExtractions, null, 2),\n    '',\n    'ALL DOWNLOADED FILE CONTENTS FOR REVIEW:',\n    filesForReview\n  ].join('\\n');\n  const finalPrompt = [\n    source.agent2PromptOverride ? 'CALLER EXTRA INSTRUCTIONS FOR AGENT 2:' : '',\n    source.agent2PromptOverride ? String(source.agent2PromptOverride) : '',\n    source.agent2PromptOverride ? 'END CALLER EXTRA INSTRUCTIONS.' : '',\n    reviewPrompt\n  ].filter(line => line !== '').join('\\n\\n');\n  return { json: { ...source, extraction, validatedExtractions, reviewPrompt: finalPrompt } };\n});"
+      },
+      "id": "70580ff5-cf04-4282-8f35-8051a2ede75b",
+      "name": "Build Multi File Review Prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [1024, 4224],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "function parseAgentJson(rawOutput, nodeName) {\n  const text = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput ?? {});\n  const stripped = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();\n  try { return JSON.parse(stripped); } catch (error) {\n    const match = stripped.match(/\\{[\\s\\S]*\\}/);\n    if (match) return JSON.parse(match[0]);\n    throw new Error(nodeName + ' did not return valid JSON: ' + text);\n  }\n}\nfunction validateOnlyMachineTypeChanged(originalCode, updatedCode, oldType, newType, filePath) {\n  const originalLines = originalCode.split(/\\r?\\n/);\n  const updatedLines = updatedCode.split(/\\r?\\n/);\n  if (originalLines.length !== updatedLines.length) throw new Error(filePath + ': Agent 2 changed snippet line count.');\n  const diffs = [];\n  for (let index = 0; index < originalLines.length; index++) {\n    if (originalLines[index] !== updatedLines[index]) diffs.push({ oldLine: originalLines[index], newLine: updatedLines[index] });\n  }\n  if (diffs.length !== 1) throw new Error(filePath + ': Agent 2 must change exactly one line, changed ' + diffs.length + '.');\n  const pattern = /^(\\s*[A-Za-z0-9_-]*machine_type[A-Za-z0-9_-]*\\s*=\\s*)\"([^\"]+)\"(.*)$/;\n  const oldMatch = diffs[0].oldLine.match(pattern);\n  const newMatch = diffs[0].newLine.match(pattern);\n  if (!oldMatch || !newMatch) throw new Error(filePath + ': changed line is not a quoted machine_type assignment.');\n  const expectedOldType = oldType === undefined || oldType === null ? '' : String(oldType).trim();\n  if (expectedOldType && oldMatch[2] !== expectedOldType) throw new Error(filePath + ': changed from ' + oldMatch[2] + ', expected ' + expectedOldType + '.');\n  if (newMatch[2] !== newType) throw new Error(filePath + ': changed to ' + newMatch[2] + ', expected ' + newType + '.');\n  if (oldMatch[1] !== newMatch[1] || oldMatch[3] !== newMatch[3]) throw new Error(filePath + ': changed more than the machine_type value.');\n  return oldMatch[2];\n}\nfunction instanceKey(value) {\n  return String(value ?? 'unknown-instance').toLowerCase().replace(/[^a-z0-9]/g, '') || 'unknown-instance';\n}\nfunction ensureInstance(instanceMap, recommendation) {\n  const key = recommendation.instanceKey ?? instanceKey(recommendation.instanceName);\n  if (!instanceMap.has(key)) {\n    instanceMap.set(key, {\n      instanceKey: key,\n      instanceName: recommendation.instanceName,\n      projectName: recommendation.projectName,\n      targetName: recommendation.targetName,\n      files: recommendation.files ?? [],\n      recommendationIndexes: [],\n      recommendations: [],\n      appliedChanges: [],\n      skippedChanges: [],\n      changedFiles: []\n    });\n  }\n  const entry = instanceMap.get(key);\n  if (!entry.recommendationIndexes.includes(recommendation.recommendationIndex)) {\n    entry.recommendationIndexes.push(recommendation.recommendationIndex);\n    entry.recommendations.push({\n      recommendationIndex: recommendation.recommendationIndex,\n      currentMachineType: recommendation.currentMachineType,\n      targetMachineType: recommendation.targetMachineType,\n      recommendedAction: recommendation.recommendedAction,\n      files: recommendation.files ?? []\n    });\n  }\n  return entry;\n}\nfunction finalizeInstances(instanceMap) {\n  return Array.from(instanceMap.values()).map(instance => ({\n    ...instance,\n    changedFiles: [...new Set(instance.changedFiles)],\n    files: [...new Set(instance.files)],\n    status: instance.appliedChanges.length ? 'updated' : (instance.skippedChanges.length ? 'not_updated' : 'no_change_returned')\n  }));\n}\nfunction buildPullRequestBody(source, instanceResults, updatedFiles) {\n  if (source.pullRequestBody) return String(source.pullRequestBody);\n  const lines = [\n    'Automated GCP VM resize recommendation changes.',\n    '',\n    'Repository: ' + source.owner + '/' + source.repo,\n    'Head branch: ' + source.branch,\n    'Base branch: ' + source.baseBranch,\n    '',\n    'Updated files:',\n    ...(updatedFiles.length ? updatedFiles.map(file => '- ' + file.filePath + ' (' + file.changeCount + ' change' + (file.changeCount === 1 ? '' : 's') + ')') : ['- None']),\n    '',\n    'Instances:'\n  ];\n  for (const instance of instanceResults) {\n    lines.push('- ' + instance.instanceName + ': ' + instance.status + ', files: ' + (instance.changedFiles.length ? instance.changedFiles.join(', ') : 'none'));\n  }\n  return lines.join('\\n');\n}\nconst machineTypePattern = /^(?:custom-\\d+-\\d+|[a-z][a-z0-9]*-[a-z0-9]+(?:-[a-z0-9]+){0,3})$/;\nconst reviewItems = $input.all();\nconst sourceItems = $items('Build Multi File Review Prompt');\nif (reviewItems.length !== sourceItems.length) throw new Error('Agent 2 output count does not match source item count.');\nconst output = [];\nfor (let index = 0; index < reviewItems.length; index++) {\n  const source = sourceItems[index].json;\n  const review = parseAgentJson(reviewItems[index].json.output ?? reviewItems[index].json.text ?? reviewItems[index].json, 'AI Agent 2');\n  const filesByPath = Object.fromEntries(source.files.map(file => [file.filePath, { ...file, modifiedContent: file.fileContent, appliedChanges: [] }]));\n  const extractions = source.validatedExtractions ?? [];\n  const extractionKeys = new Set(extractions.map(extraction => extraction.filePath + '\\u0000' + extraction.extractedCode));\n  const recommendationsByIndex = new Map(source.recommendations.map(recommendation => [recommendation.recommendationIndex, recommendation]));\n  const instanceMap = new Map();\n  for (const recommendation of source.recommendations) ensureInstance(instanceMap, recommendation);\n  const changes = Array.isArray(review.changes) ? review.changes : [];\n  const skippedChanges = [];\n  for (const change of changes) {\n    const recommendationIndex = Number(change.recommendationIndex);\n    const recommendation = recommendationsByIndex.get(recommendationIndex);\n    if (!recommendation) {\n      skippedChanges.push({ ...change, recommendationIndex, status: 'not_updated', reason: 'Agent 2 returned a recommendationIndex not mapped to webhook files.' });\n      continue;\n    }\n    const instance = ensureInstance(instanceMap, recommendation);\n    const filePath = change.filePath;\n    const originalExtractedCode = String(change.originalExtractedCode ?? change.originalSnippet ?? '');\n    const updatedExtractedCode = String(change.updatedExtractedCode ?? change.updatedSnippet ?? originalExtractedCode);\n    const finalTargetMachineType = String(change.targetMachineType ?? change.finalMachineType ?? change.bestMachineTypeCandidate ?? '').trim();\n    const rawChangeRequired = change.changeRequired ?? change.approved;\n    const changeRequired = rawChangeRequired === true || String(rawChangeRequired).toLowerCase() === 'true';\n    if (!changeRequired) {\n      const skipped = { ...change, recommendationIndex, instanceName: recommendation.instanceName, filePath, originalExtractedCode, updatedExtractedCode: originalExtractedCode, status: 'not_updated' };\n      skippedChanges.push(skipped);\n      instance.skippedChanges.push(skipped);\n      continue;\n    }\n    if (!filePath || !filesByPath[filePath]) throw new Error('Agent 2 returned a change for a file not supplied: ' + filePath);\n    if (!recommendation.files.includes(filePath)) throw new Error(filePath + ': Agent 2 used a file not mapped to recommendation ' + recommendationIndex + '.');\n    if (!machineTypePattern.test(finalTargetMachineType)) throw new Error(filePath + ': Agent 2 returned invalid targetMachineType ' + finalTargetMachineType + '.');\n    if (!extractionKeys.has(filePath + '\\u0000' + originalExtractedCode)) throw new Error(filePath + ': Agent 2 originalExtractedCode does not match any Agent 1 extraction.');\n    if (!updatedExtractedCode || updatedExtractedCode === originalExtractedCode) throw new Error(filePath + ': Agent 2 marked changeRequired but did not change updatedExtractedCode.');\n    const matchingExtraction = extractions.find(extraction => extraction.filePath === filePath && extraction.extractedCode === originalExtractedCode) ?? {};\n    const expectedOldType = change.currentMachineType ?? change.oldMachineType ?? matchingExtraction.currentMachineType ?? recommendation.currentMachineType;\n    const oldMachineType = validateOnlyMachineTypeChanged(originalExtractedCode, updatedExtractedCode, expectedOldType, finalTargetMachineType, filePath);\n    const occurrences = filesByPath[filePath].modifiedContent.split(originalExtractedCode).length - 1;\n    if (occurrences !== 1) throw new Error(filePath + ': originalExtractedCode must occur exactly once, found ' + occurrences + '.');\n    filesByPath[filePath].modifiedContent = filesByPath[filePath].modifiedContent.replace(originalExtractedCode, updatedExtractedCode);\n    const appliedChange = { ...change, recommendationIndex, instanceName: recommendation.instanceName, projectName: recommendation.projectName, originalExtractedCode, updatedExtractedCode, oldMachineType, targetMachineType: finalTargetMachineType, filePath };\n    filesByPath[filePath].appliedChanges.push(appliedChange);\n    instance.appliedChanges.push(appliedChange);\n    instance.changedFiles.push(filePath);\n  }\n  const instanceResults = finalizeInstances(instanceMap);\n  const updateFiles = Object.values(filesByPath).filter(file => file.appliedChanges.length);\n  const updatedFiles = updateFiles.map(file => ({ filePath: file.filePath, changeCount: file.appliedChanges.length, instances: [...new Set(file.appliedChanges.map(change => change.instanceName))] }));\n  const pullRequestPayload = {\n    title: source.pullRequestTitle ?? 'Apply AI-reviewed GCP VM resize recommendations',\n    head: source.branch,\n    base: source.baseBranch ?? 'main',\n    body: buildPullRequestBody(source, instanceResults, updatedFiles)\n  };\n  if (!updateFiles.length) {\n    output.push({ json: { ...source, shouldUpdateGitHub: false, status: 'not_updated', changes: skippedChanges, instanceResults, updatedFiles: [], review, modifiedContent: null, updatePayload: null, pullRequestPayload: null } });\n    continue;\n  }\n  updateFiles.forEach((file, updateIndex) => {\n    output.push({\n      json: {\n        ...source,\n        shouldUpdateGitHub: true,\n        status: 'ready_to_update',\n        filePath: file.filePath,\n        githubSha: file.githubSha,\n        githubHtmlUrl: file.githubHtmlUrl,\n        changes: file.appliedChanges,\n        skippedChanges,\n        instanceResults,\n        updatedFiles,\n        batchUpdateIndex: updateIndex,\n        batchUpdateFileCount: updateFiles.length,\n        review,\n        modifiedContent: file.modifiedContent,\n        pullRequestPayload,\n        updatePayload: {\n          message: source.commitMessage + ' (' + file.appliedChanges.length + ' resize change' + (file.appliedChanges.length === 1 ? '' : 's') + ' in ' + file.filePath + ')',\n          content: Buffer.from(file.modifiedContent, 'utf8').toString('base64'),\n          sha: file.githubSha,\n          branch: source.branch\n        }\n      }\n    });\n  });\n}\nreturn output;"
+      },
+      "id": "1f6740ef-80fe-4447-856a-ac0f855b7ef9",
+      "name": "Build File Update Items",
+      "type": "n8n-nodes-base.code",
+      "position": [1600, 4224],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{$json.apiBase + '/repos/' + $json.owner + '/' + $json.repo + '/contents/' + encodeURIComponent($json.filePath).replace(/%2F/g, '/')}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.updatePayload}}",
+        "options": {}
+      },
+      "id": "f1ad9d9a-8981-4e61-8b47-2aa6df939eef",
+      "name": "Update File In GitHub",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [2048, 4128],
+      "typeVersion": 4.2,
+      "credentials": {
+        "githubApi": {
+          "id": "YOUR_GITHUB_API_CREDENTIAL_ID",
+          "name": "YOUR_GITHUB_API_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.shouldUpdateGitHub}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "f65b8898-9c95-4889-aeac-851b06360ff4",
+      "name": "Should GitHub Repo",
+      "type": "n8n-nodes-base.if",
+      "position": [1824, 4224],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "AI Agent 1 - Extract Useful Code1": {
+      "main": [[{"node": "Build Multi File Review Prompt", "type": "main", "index": 0}]]
+    },
+    "Extractor Chat Model1": {
+      "ai_languageModel": [[{"node": "AI Agent 1 - Extract Useful Code1", "type": "ai_languageModel", "index": 0}]]
+    },
+    "AI Agent 2 - Review And Update Code1": {
+      "main": [[{"node": "Build File Update Items", "type": "main", "index": 0}]]
+    },
+    "Reviewer Chat Model1": {
+      "ai_languageModel": [[{"node": "AI Agent 2 - Review And Update Code1", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Get list of VM Instances": {
+      "main": [[{"node": "AI Agent1", "type": "main", "index": 0}]]
+    },
+    "AI Agent1": {
+      "main": [[
+        {"node": "Format Agent's output", "type": "main", "index": 0},
+        {"node": "VM Optimization Recommendation & Reason", "type": "main", "index": 0}
+      ]]
+    },
+    "Simple Memory1": {
+      "ai_memory": [[{"node": "AI Agent1", "type": "ai_memory", "index": 0}]]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [[{"node": "AI Agent1", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Format Output Body": {
+      "main": [[{"node": "Merge both o/p from agent and list of files", "type": "main", "index": 1}]]
+    },
+    "HTTP Request1": {
+      "main": [[{"node": "Code in JavaScript", "type": "main", "index": 0}]]
+    },
+    "Code in JavaScript": {
+      "main": [[{"node": "Send an Email", "type": "main", "index": 0}]]
+    },
+    "Build Updated Response": {
+      "main": [[{"node": "HTTP Request1", "type": "main", "index": 0}]]
+    },
+    "Input Details": {
+      "main": [[{"node": "Connect to GCP Project", "type": "main", "index": 0}]]
+    },
+    "Connect to GCP Project": {
+      "main": [[{"node": "Get list of VM Instances", "type": "main", "index": 0}]]
+    },
+    "VM Optimization Recommendation & Reason": {
+      "main": [[{"node": "Read the Github Repo w.r.t Project", "type": "main", "index": 0}]]
+    },
+    "Read the Github Repo w.r.t Project": {
+      "main": [[{"node": "Filter out required files/directories from project folder", "type": "main", "index": 0}]]
+    },
+    "Filter out required files/directories from project folder": {
+      "main": [[{"node": "Parse through the Github URL", "type": "main", "index": 0}]]
+    },
+    "Parse through the Github URL": {
+      "main": [[{"node": "Create one O/P record per file", "type": "main", "index": 0}]]
+    },
+    "Create one O/P record per file": {
+      "main": [[
+        {"node": "Combine the VM & File details", "type": "main", "index": 0},
+        {"node": "Read contents of the file matching the VM details", "type": "main", "index": 0}
+      ]]
+    },
+    "Read contents of the file matching the VM details": {
+      "main": [[{"node": "Combine the VM & File details", "type": "main", "index": 1}]]
+    },
+    "Combine the VM & File details": {
+      "main": [[{"node": "List the files based on VMs and recommendation", "type": "main", "index": 0}]]
+    },
+    "List the files based on VMs and recommendation": {
+      "main": [[{"node": "Format Output Body", "type": "main", "index": 0}]]
+    },
+    "Format Agent's output": {
+      "main": [[{"node": "Merge both o/p from agent and list of files", "type": "main", "index": 0}]]
+    },
+    "Merge both o/p from agent and list of files": {
+      "main": [[{"node": "Prepare Input Items", "type": "main", "index": 0}]]
+    },
+    "Prepare Input Items": {
+      "main": [[{"node": "Get File From GitHub", "type": "main", "index": 0}]]
+    },
+    "Get File From GitHub": {
+      "main": [[{"node": "Build Multi File Context", "type": "main", "index": 0}]]
+    },
+    "Build Multi File Context": {
+      "main": [[{"node": "AI Agent 1 - Extract Useful Code1", "type": "main", "index": 0}]]
+    },
+    "Build Multi File Review Prompt": {
+      "main": [[{"node": "AI Agent 2 - Review And Update Code1", "type": "main", "index": 0}]]
+    },
+    "Build File Update Items": {
+      "main": [[{"node": "Should GitHub Repo", "type": "main", "index": 0}]]
+    },
+    "Update File In GitHub": {
+      "main": [[{"node": "Build Updated Response", "type": "main", "index": 0}]]
+    },
+    "Should GitHub Repo": {
+      "main": [
+        [{"node": "Update File In GitHub", "type": "main", "index": 0}],
+        [{"node": "Build Skipped Response1", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "YOUR-N8N-INSTANCE-ID"
+  }
+}
