@@ -1,0 +1,1400 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE       : Parse Alert Payload\n// PURPOSE    : Normalise Snowbridge / xMatters / ServiceNow\n//              payloads into one canonical alert object\n// MODE       : Run Once for Each Item\n// ============================================================\nconst body = $json.body || $json;\nconst data = (typeof body.data === 'object' && body.data !== null) ? body.data : {};\nconst src  = { ...body, ...data };\nfunction pick(...candidates) {\n  for (const c of candidates) {\n    if (c !== undefined && c !== null && c !== '') return c;\n  }\n  return null;\n}\nfunction extractMetricFromDescription(desc) {\n  if (!desc) return null;\n  if (/bigquery/i.test(desc))       return 'BigQuery';\n  if (/cloud.?run/i.test(desc))     return 'Cloud_Run';\n  if (/cpu|processor/i.test(desc))  return 'CPU';\n  if (/mem/i.test(desc))            return 'Memory';\n  if (/disk|storage/i.test(desc))   return 'Storage';\n  if (/net/i.test(desc))            return 'Network';\n  if (/sec|auth/i.test(desc))       return 'Security';\n  if (/app|error|http/i.test(desc)) return 'Application';\n  return pick(src.type, 'Application');\n}\nfunction extractSeverityFromDescription(desc) {\n  if (!desc) return null;\n  if (/critical/i.test(desc))   return 'critical';\n  if (/major|high/i.test(desc)) return 'high';\n  if (/minor|med/i.test(desc))  return 'medium';\n  if (/warn/i.test(desc))       return 'low';\n  return null;\n}\nfunction derivePlatformType(s) {\n  const metric  = String(s.metric_name        || '').toLowerCase().trim();\n  const ci      = String(s.cmdb_ci            || '').toLowerCase().trim();\n  const service = String(s.cloud_run_service  || '').toLowerCase().trim();\n  if (metric === 'bigquery'  || ci.includes('bigquery'))  return 'bigquery';\n  if (metric === 'cloud_run' || metric === 'cloudrun'\n      || service.length > 0)                              return 'cloud_run';\n  return 'compute_engine';\n}\nconst description = pick(src.description, src.u_description);\nconst metric_name = pick(\n  src.metric_name, src.u_metric_name, src.metric, src.alert_type,\n  extractMetricFromDescription(description)\n);\nconst canonical = {\n  alert_number     : pick(src.number, src.alert_number, src.u_alert_number, `ALT-${Date.now()}`),\n  environment      : pick(src.environment, src.u_environment, src.env, src.u_environment_name),\n  assignment_group : pick(src.assignment_group, src.u_assignment_group, src.assignmentGroup),\n  cmdb_ci          : pick(src.cmdb_ci, src.u_cmdb_ci, src.ci, src.configuration_item),\n  node             : pick(src.node, src.host, src.hostname, src.resource, src.instance_id, src.cmdb_ci, src.configuration_item),\n  metric_name      : metric_name,\n  severity         : pick(src.severity, src.u_severity, src.priority,\n                          extractSeverityFromDescription(description), 'medium'),\n  service_platform : pick(src.service_platform, src.u_platform, src.platform),\n  gmom_event_id    : pick(src.gmom_event_id, src.u_gmom_event_id, src.u_gmom_event_ids, src.event_id),\n  current_value    : pick(src.current_value, src.value, null),\n  description      : description,\n  alert_source     : pick(src.source, 'webhook'),\n  platform_type    : pick(src.platform_type, derivePlatformType(src)),\n  raw_payload      : body,\n  received_at      : new Date().toISOString(),\n  source           : 'webhook'\n};\nreturn canonical;"
+      },
+      "id": "6dc46f60-daa8-4cc0-bd6f-a405ce697689",
+      "name": "Parse Alert Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-2288, 224],
+      "notes": "Normalises inbound payload shape from Snowbridge/xMatters/ServiceNow into a canonical alert object."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.platform_type }}",
+                    "rightValue": "compute_engine",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "b1197693-e50c-48f9-a4f9-5da5fb531063"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "compute_engine"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.platform_type }}",
+                    "rightValue": "cloud_run",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "6ad4cfca-e578-4664-8c21-5fc36cf60774"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cloud_run"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.platform_type }}",
+                    "rightValue": "bigquery",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "6a522005-4a69-479d-9ab2-d7d98b219476"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "bigquery"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Platform Report"
+        }
+      },
+      "id": "f6206aec-8ae6-43c4-8f9c-3a4b880c490b",
+      "name": "Route by Platform Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [-688, 240],
+      "notes": "Routes alert to correct diagnostic branch based on platform_type."
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "echo '=== TOP ===' && top -bn1 -o +%CPU | head -25 && echo '=== PS ===' && ps -eLf --sort=-%cpu | head -20 && echo '=== LOADAVG ===' && cat /proc/loadavg"
+      },
+      "id": "d3365916-6a47-4686-8ab2-d69fc87d7a6c",
+      "name": "SSH: CPU Diagnostics",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [-272, 16],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "YOUR_SSH_CREDENTIAL_ID",
+          "name": "YOUR_SSH_CREDENTIAL_NAME"
+        }
+      },
+      "continueOnFail": true,
+      "notes": "SSH CPU diagnostics. Replace credential with your own SSH private key credential."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## ALERT\n{{ '- ' + $('Resource Enrichment Lookup').item.json.metric_name + ': ' + ($('Resource Enrichment Lookup').item.json.current_value || 'n/a') + ' (' + $('Resource Enrichment Lookup').item.json.severity + ') on ' + $('Resource Enrichment Lookup').item.json.node + ' [' + $('Resource Enrichment Lookup').item.json.environment + ']' }}\n## YOUR DOMAIN: CPU\nRun your domain's health check regardless of whether CPU is the metric that\nalerted -- this is a full diagnostic sweep for this resource, not a\nsingle-metric investigation. If your domain isn't the thing that alerted,\nstill report its actual state at capture time briefly.\n## EVIDENCE CAPTURE TIME (this is a point-in-time snapshot, not a live query)\n{{ $now.toISO() }}\n## LIVE SSH OUTPUT (captured at the timestamp above -- treat as historical, not current)\n{{ $json.error ? 'SSH UNAVAILABLE: ' + $json.error.message : ($json.stdout || 'No output') }}\n## YOUR TASK (keep every section brief -- this is billed per token)\nPINPOINTED CAUSE: one line, most specific fact available, PAST TENSE (e.g. \"PID 3504 was using 87% CPU\"), never \"is\"/\"currently\".\nOBSERVED CONDITION: 2-3 sentences max, past tense, must reference the capture timestamp above explicitly. This becomes the alert's analysis summary. Do not use the words \"root cause\" -- you are reporting an observation, not a proven causal chain.\nIMMEDIATE ACTION: read-only commands/API calls only, list format.\nSHORT-TERM FIX: one line, human-approved remediation (never a command to execute automatically).\nLONG-TERM: one line, capacity/config recommendation.\nESCALATE TO L2? (Yes/No + one-line reason)\nIf the evidence does not support a finding, write \"No sustained offender observed in the capture window\" rather than inferring one.",
+        "options": {
+          "systemMessage": "=You are the CPU Specialist for L1 triage. Host: {{ $('Resource Enrichment Lookup').item.json.node }} (instance {{ $('Resource Enrichment Lookup').item.json.instance_id }}), project {{ $('Resource Enrichment Lookup').item.json.gcp_project }}, environment {{ $('Resource Enrichment Lookup').item.json.environment }}. You have LIVE SSH output. Pinpoint exact PID. Never recommend automatic execution of destructive commands.\n\n",
+          "maxIterations": 4
+        }
+      },
+      "id": "08b93ded-096d-45cb-97e4-db45ff6f03e3",
+      "name": "CPU Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [0, 0],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [0, 176],
+      "id": "da9d3071-a52b-4d8a-a89a-f4de6b0d05bc",
+      "name": "OpenAI Chat Model (CPU)",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "echo '=== FREE ===' && free -h && echo '=== TOP MEM ===' && ps aux --sort=-%mem | head -20 && echo '=== MEMINFO ===' && cat /proc/meminfo | grep -E 'MemTotal|MemFree|MemAvailable|Cached'"
+      },
+      "id": "bc1891d5-ebbb-4963-982c-1225a500b8bf",
+      "name": "SSH: MEMORY Diagnostics",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [-240, 272],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "YOUR_SSH_CREDENTIAL_ID",
+          "name": "YOUR_SSH_CREDENTIAL_NAME"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## ALERT\n{{ '- ' + $('Resource Enrichment Lookup').item.json.metric_name + ': ' + ($('Resource Enrichment Lookup').item.json.current_value || 'n/a') + ' (' + $('Resource Enrichment Lookup').item.json.severity + ') on ' + $('Resource Enrichment Lookup').item.json.node + ' [' + $('Resource Enrichment Lookup').item.json.environment + ']' }}\n\n## YOUR DOMAIN: MEMORY\nRun your domain's health check regardless of whether MEMORY is the metric that\nalerted -- this is a full diagnostic sweep for this resource, not a\nsingle-metric investigation. If your domain isn't the thing that alerted,\nstill report its actual state at capture time briefly.\n\n## EVIDENCE CAPTURE TIME (this is a point-in-time snapshot, not a live query)\n{{ $now.toISO() }}\n\n## LIVE SSH OUTPUT (captured at the timestamp above -- treat as historical, not current)\n{{ $json.error ? 'SSH UNAVAILABLE: ' + $json.error.message : ($json.stdout || 'No output') }}\n\n## YOUR TASK (keep every section brief -- this is billed per token)\nPINPOINTED CAUSE: one line, most specific fact available, PAST TENSE (e.g. \"PID 3504 was using 87% CPU\"), never \"is\"/\"currently\".\nOBSERVED CONDITION: 2-3 sentences max, past tense, must reference the capture timestamp above explicitly. This becomes the alert's analysis summary. Do not use the words \"root cause\" -- you are reporting an observation, not a proven causal chain.\nIMMEDIATE ACTION: read-only commands/API calls only, list format.\nSHORT-TERM FIX: one line, human-approved remediation (never a command to execute automatically).\nLONG-TERM: one line, capacity/config recommendation.\nESCALATE TO L2? (Yes/No + one-line reason)\nIf the evidence does not support a finding, write \"No sustained offender observed in the capture window\" rather than inferring one.",
+        "options": {
+          "systemMessage": "=You are the Memory Specialist for L1 triage. Host: {{ $('Resource Enrichment Lookup').item.json.node }}, project {{ $('Resource Enrichment Lookup').item.json.gcp_project }}, environment {{ $('Resource Enrichment Lookup').item.json.environment }}. Pinpoint exact process. OOM-kill risk elevated when MemAvailable drops.",
+          "maxIterations": 4
+        }
+      },
+      "id": "959f8ec5-5c8e-4c39-aeb1-132e73931658",
+      "name": "MEMORY Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [0, 304],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [0, 496],
+      "id": "3e44bf37-9419-44a8-bd49-9ebb59acce83",
+      "name": "OpenAI Chat Model (MEMORY)",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "echo '=== DF -h ===' && df -h && echo '=== DF -i ===' && df -i && echo '=== DU /var/log ===' && du -sh /var/log/ 2>/dev/null | sort -rh | head -15"
+      },
+      "id": "7ab36338-56a4-46ba-8f55-b4f62af75731",
+      "name": "SSH: STORAGE Diagnostics",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [-240, 592],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "YOUR_SSH_CREDENTIAL_ID",
+          "name": "YOUR_SSH_CREDENTIAL_NAME"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## ALERT\n{{ '- ' + $('Resource Enrichment Lookup').item.json.metric_name + ': ' + ($('Resource Enrichment Lookup').item.json.current_value || 'n/a') + ' (' + $('Resource Enrichment Lookup').item.json.severity + ') on ' + $('Resource Enrichment Lookup').item.json.node + ' [' + $('Resource Enrichment Lookup').item.json.environment + ']' }}\n## YOUR DOMAIN: STORAGE\nRun your domain's health check regardless of whether STORAGE is the metric that\nalerted -- this is a full diagnostic sweep for this resource, not a\nsingle-metric investigation. If your domain isn't the thing that alerted,\nstill report its actual state at capture time briefly.\n## EVIDENCE CAPTURE TIME (this is a point-in-time snapshot, not a live query)\n{{ $now.toISO() }}\n## LIVE SSH OUTPUT (captured at the timestamp above -- treat as historical, not current)\n{{ $json.error ? 'SSH UNAVAILABLE: ' + $json.error.message : ($json.stdout || 'No output') }}\n## YOUR TASK (keep every section brief -- this is billed per token)\nPINPOINTED CAUSE: one line, most specific fact available, PAST TENSE (e.g. \"PID 3504 was using 87% CPU\"), never \"is\"/\"currently\".\nOBSERVED CONDITION: 2-3 sentences max, past tense, must reference the capture timestamp above explicitly. This becomes the alert's analysis summary. Do not use the words \"root cause\" -- you are reporting an observation, not a proven causal chain.\nIMMEDIATE ACTION: read-only commands/API calls only, list format.\nSHORT-TERM FIX: one line, human-approved remediation (never a command to execute automatically).\nLONG-TERM: one line, capacity/config recommendation.\nESCALATE TO L2? (Yes/No + one-line reason)\nIf the evidence does not support a finding, write \"No sustained offender observed in the capture window\" rather than inferring one.",
+        "options": {
+          "systemMessage": "=You are the Storage Specialist for L1 triage. Host: {{ $('Resource Enrichment Lookup').item.json.node }}, project {{ $('Resource Enrichment Lookup').item.json.gcp_project }}, environment {{ $('Resource Enrichment Lookup').item.json.environment }}. Distinguish space vs. inode exhaustion.",
+          "maxIterations": 4
+        }
+      },
+      "id": "ebe51abd-dde3-4a47-99e0-bb76367494a9",
+      "name": "STORAGE Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-16, 624],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [-16, 816],
+      "id": "0859deaa-8f48-4ac6-aa2e-69ff8bc95720",
+      "name": "OpenAI Chat Model (STORAGE)",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "echo '=== SS ===' && ss -tunap | head -30 && echo '=== IP ADDR ===' && ip addr && echo '=== IP ROUTE ===' && ip route"
+      },
+      "id": "2ec7a88a-dee3-4bc8-a4d7-94403837bd5b",
+      "name": "SSH: NETWORK Diagnostics",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [-256, 944],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "YOUR_SSH_CREDENTIAL_ID",
+          "name": "YOUR_SSH_CREDENTIAL_NAME"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## ALERT\n{{ '- ' + $('Resource Enrichment Lookup').item.json.metric_name + ': ' + ($('Resource Enrichment Lookup').item.json.current_value || 'n/a') + ' (' + $('Resource Enrichment Lookup').item.json.severity + ') on ' + $('Resource Enrichment Lookup').item.json.node + ' [' + $('Resource Enrichment Lookup').item.json.environment + ']' }}\n## YOUR DOMAIN: NETWORK\nRun your domain's health check regardless of whether NETWORK is the metric that\nalerted -- this is a full diagnostic sweep for this resource, not a\nsingle-metric investigation. If your domain isn't the thing that alerted,\nstill report its actual state at capture time briefly.\n## EVIDENCE CAPTURE TIME (this is a point-in-time snapshot, not a live query)\n{{ $now.toISO() }}\n## LIVE SSH OUTPUT (captured at the timestamp above -- treat as historical, not current)\n{{ $json.error ? 'SSH UNAVAILABLE: ' + $json.error.message : ($json.stdout || 'No output') }}\n## YOUR TASK (keep every section brief -- this is billed per token)\nPINPOINTED CAUSE: one line, most specific fact available, PAST TENSE (e.g. \"PID 3504 was using 87% CPU\"), never \"is\"/\"currently\".\nOBSERVED CONDITION: 2-3 sentences max, past tense, must reference the capture timestamp above explicitly. This becomes the alert's analysis summary. Do not use the words \"root cause\" -- you are reporting an observation, not a proven causal chain.\nIMMEDIATE ACTION: read-only commands/API calls only, list format.\nSHORT-TERM FIX: one line, human-approved remediation (never a command to execute automatically).\nLONG-TERM: one line, capacity/config recommendation.\nESCALATE TO L2? (Yes/No + one-line reason)\nIf the evidence does not support a finding, write \"No sustained offender observed in the capture window\" rather than inferring one.",
+        "options": {
+          "systemMessage": "=You are the Network Specialist for L1 triage. Host: {{ $('Resource Enrichment Lookup').item.json.node }}, project {{ $('Resource Enrichment Lookup').item.json.gcp_project }}, environment {{ $('Resource Enrichment Lookup').item.json.environment }}. SSH session success itself proves at least one NIC was reachable -- report on that fact plus what ip addr/route show.",
+          "maxIterations": 4
+        }
+      },
+      "id": "f5c24fa1-c8a3-4630-8aa9-33f2b0386a29",
+      "name": "NETWORK Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-48, 1008],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [-32, 1152],
+      "id": "729dd39f-e9bd-414b-bd05-42f45a3f4927",
+      "name": "OpenAI Chat Model (NETWORK)",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "echo '=== AUTH ERRORS ===' && sudo tail -50 /var/log/secure 2>/dev/null | grep -iE 'failed|denied|invalid|error' | tail -20 && echo '=== JOURNALCTL ERR ===' && journalctl -p err --since '15 min ago' --no-pager 2>/dev/null | grep -v 'pam_systemd\\|OSConfigAgent' | tail -20 && echo '=== AUDIT LOG ===' && sudo tail -20 /var/log/audit/audit.log 2>/dev/null | grep -iE 'denied|failed' | tail -10 && echo '=== DONE ==='"
+      },
+      "id": "b49b2434-fe05-458a-a631-8cfda4ee2a09",
+      "name": "SSH: SECURITY Diagnostics",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [-272, 1328],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "YOUR_SSH_CREDENTIAL_ID",
+          "name": "YOUR_SSH_CREDENTIAL_NAME"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## ALERT\n{{ '- ' + $('Resource Enrichment Lookup').item.json.metric_name + ': ' + ($('Resource Enrichment Lookup').item.json.current_value || 'n/a') + ' (' + $('Resource Enrichment Lookup').item.json.severity + ') on ' + $('Resource Enrichment Lookup').item.json.node + ' [' + $('Resource Enrichment Lookup').item.json.environment + ']' }}\n## YOUR DOMAIN: SECURITY\nRun your domain's health check regardless of whether SECURITY is the metric that\nalerted -- this is a full diagnostic sweep for this resource, not a\nsingle-metric investigation. If your domain isn't the thing that alerted,\nstill report its actual state at capture time briefly.\n## EVIDENCE CAPTURE TIME (this is a point-in-time snapshot, not a live query)\n{{ $now.toISO() }}\n## LIVE SSH OUTPUT (captured at the timestamp above -- treat as historical, not current)\n{{ $json.error ? 'SSH UNAVAILABLE: ' + $json.error.message : ($json.stdout || 'No output') }}\n## YOUR TASK (keep every section brief -- this is billed per token)\nPINPOINTED CAUSE: one line, most specific fact available, PAST TENSE (e.g. \"PID 3504 was using 87% CPU\"), never \"is\"/\"currently\".\nOBSERVED CONDITION: 2-3 sentences max, past tense, must reference the capture timestamp above explicitly. This becomes the alert's analysis summary. Do not use the words \"root cause\" -- you are reporting an observation, not a proven causal chain.\nIMMEDIATE ACTION: read-only commands/API calls only, list format.\nSHORT-TERM FIX: one line, human-approved remediation (never a command to execute automatically).\nLONG-TERM: one line, capacity/config recommendation.\nESCALATE TO L2? (Yes/No + one-line reason)\nIf the evidence does not support a finding, write \"No sustained offender observed in the capture window\" rather than inferring one.",
+        "options": {
+          "systemMessage": "=You are the Security Specialist for L1 triage. Host: {{ $('Resource Enrichment Lookup').item.json.node }}, environment {{ $('Resource Enrichment Lookup').item.json.environment }}. Focus ONLY on authentication failures, unauthorized access attempts, and suspicious log patterns -- NOT general application errors, those belong to the Application Agent. Do not speculate about compromise without evidence.",
+          "maxIterations": 4
+        }
+      },
+      "id": "2ee8d358-c27f-49ec-921c-7cf851afa365",
+      "name": "SECURITY Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-32, 1328],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [-32, 1456],
+      "id": "dca9af26-fd61-4002-9c09-33f4ce9cee76",
+      "name": "OpenAI Chat Model (SECURITY)",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "echo '=== APP PROCESS ===' && ps aux | grep -iE 'python|rag|api' | grep -v grep | head -20 && echo '=== HTTP ACCESS LOG (last 20) ===' && sudo tail -20 /var/log/httpd/access_log 2>/dev/null && echo '=== SYSTEM MESSAGES (errors last 15min) ===' && sudo journalctl --since '15 min ago' --no-pager 2>/dev/null | grep -iE 'error|fail|exception' | grep -v 'pam_systemd\\|OSConfigAgent' | tail -20 && echo '=== DONE ==='"
+      },
+      "id": "9b48fe37-5975-4ac1-b642-c4f8a4003f14",
+      "name": "SSH: APPLICATION Diagnostics",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [-272, 1552],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "YOUR_SSH_CREDENTIAL_ID",
+          "name": "YOUR_SSH_CREDENTIAL_NAME"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## ALERT\n{{ '- ' + $('Resource Enrichment Lookup').item.json.metric_name + ': ' + ($('Resource Enrichment Lookup').item.json.current_value || 'n/a') + ' (' + $('Resource Enrichment Lookup').item.json.severity + ') on ' + $('Resource Enrichment Lookup').item.json.node + ' [' + $('Resource Enrichment Lookup').item.json.environment + ']' }}\n## YOUR DOMAIN: APPLICATION\nRun your domain's health check regardless of whether APPLICATION is the metric that\nalerted -- this is a full diagnostic sweep for this resource, not a\nsingle-metric investigation. If your domain isn't the thing that alerted,\nstill report its actual state at capture time briefly.\n## EVIDENCE CAPTURE TIME (this is a point-in-time snapshot, not a live query)\n{{ $now.toISO() }}\n## LIVE SSH OUTPUT (captured at the timestamp above -- treat as historical, not current)\n{{ $json.error ? 'SSH UNAVAILABLE: ' + $json.error.message : ($json.stdout || 'No output') }}\n## YOUR TASK (keep every section brief -- this is billed per token)\nPINPOINTED CAUSE: one line, most specific fact available, PAST TENSE (e.g. \"PID 3504 was using 87% CPU\"), never \"is\"/\"currently\".\nOBSERVED CONDITION: 2-3 sentences max, past tense, must reference the capture timestamp above explicitly. This becomes the alert's analysis summary. Do not use the words \"root cause\" -- you are reporting an observation, not a proven causal chain.\nIMMEDIATE ACTION: read-only commands/API calls only, list format.\nSHORT-TERM FIX: one line, human-approved remediation (never a command to execute automatically).\nLONG-TERM: one line, capacity/config recommendation.\nESCALATE TO L2? (Yes/No + one-line reason)\nIf the evidence does not support a finding, write \"No sustained offender observed in the capture window\" rather than inferring one.",
+        "options": {
+          "systemMessage": "=You are the Application Specialist for L1 triage. Host: {{ $('Resource Enrichment Lookup').item.json.node }}, environment {{ $('Resource Enrichment Lookup').item.json.environment }}. Focus ONLY on application-level errors: HTTP 4xx/5xx, crashed/restarted processes, exception traces -- NOT authentication/security events, those belong to the Security Agent. Never fabricate a CPU/memory/disk explanation if the diagnostic output doesn't show one -- if the logs are clean, say so plainly.",
+          "maxIterations": 4
+        }
+      },
+      "id": "28a37fdc-1b4a-4a29-a093-03d5a9cda65f",
+      "name": "APPLICATION Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-32, 1552],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [-32, 1664],
+      "id": "7fd044bc-adac-4001-ab68-bbbb1090f9fe",
+      "name": "OpenAI Chat Model (APPLICATION)",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "numberInputs": 6
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [384, 704],
+      "id": "1977596e-6b9e-4c43-9057-267389000457",
+      "name": "Merge All Agents (Compute Engine)"
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractLine(text, label) { const rx = new RegExp(label + '\\\\s*:?\\\\s*([^\\\\n]+)', 'i'); const m = text.match(rx); return m ? m[1].trim() : null; }\nfunction extractSection(text, label, stopLabels) {\n  const stopPattern = stopLabels.join('|');\n  const rx = new RegExp(label + '\\\\s*:?\\\\s*([\\\\s\\\\S]*?)(?=\\\\n(?:' + stopPattern + ')|$)', 'i');\n  const m = text.match(rx); return m ? m[1].trim().replace(/\\s+/g, ' ') : null;\n}\nconst STOP_LABELS = ['IMMEDIATE ACTION', 'SHORT-TERM FIX', 'LONG-TERM', 'ESCALATE TO L2'];\nfunction itemSafe(nodeName) {\n  try { return $(nodeName).item.json; } catch (e) {\n    try { return $(nodeName).first().json; } catch (e2) { return {}; }\n  }\n}\nfunction summarizeAgent(agentNodeName, sshNodeName) {\n  let agentText = '', sshFailed = true;\n  try { const j = itemSafe(agentNodeName); agentText = j.output || j.text || ''; } catch (e) { agentText = ''; }\n  try { sshFailed = !!itemSafe(sshNodeName).error; } catch (e) { sshFailed = true; }\n  return {\n    pinpointed_cause: extractLine(agentText, 'PINPOINTED CAUSE') || 'See full analysis for details',\n    recommendation: extractLine(agentText, 'SHORT-TERM FIX') || extractLine(agentText, 'IMMEDIATE ACTION') || 'See full analysis for recommendation',\n    analysis_summary: extractSection(agentText, 'OBSERVED CONDITION', STOP_LABELS) || 'See full analysis for details',\n    agent_full_analysis: agentText,\n    diagnostic_available: !sshFailed\n  };\n}\nconst domainReports = {\n  CPU: summarizeAgent('CPU Agent', 'SSH: CPU Diagnostics'),\n  Memory: summarizeAgent('MEMORY Agent', 'SSH: MEMORY Diagnostics'),\n  Storage: summarizeAgent('STORAGE Agent', 'SSH: STORAGE Diagnostics'),\n  Network: summarizeAgent('NETWORK Agent', 'SSH: NETWORK Diagnostics'),\n  Security: summarizeAgent('SECURITY Agent', 'SSH: SECURITY Diagnostics'),\n  Application: summarizeAgent('APPLICATION Agent', 'SSH: APPLICATION Diagnostics')\n};\nconst alert = itemSafe('Resource Enrichment Lookup');\nfunction inferDomain(metricName, description) {\n  const src = ((metricName || '') + ' ' + (description || '')).toLowerCase();\n  if (/cpu|processor|utiliz/i.test(src)) return 'CPU';\n  if (/mem|memory|swap/i.test(src)) return 'Memory';\n  if (/disk|storage|filesystem|space/i.test(src)) return 'Storage';\n  if (/net|network|tcp|http|connect/i.test(src)) return 'Network';\n  if (/sec|auth|access|denied|login/i.test(src)) return 'Security';\n  return 'Application';\n}\nconst directMatch = domainReports[alert.metric_name];\nconst matched = directMatch || domainReports[inferDomain(alert.metric_name, alert.description)];\nconst fullSystemReport = {};\nfor (const [domain, report] of Object.entries(domainReports)) fullSystemReport[domain] = report.pinpointed_cause;\nreturn [{ json: {\n  ...alert,\n  pinpointed_cause: matched.pinpointed_cause,\n  recommendation: matched.recommendation,\n  analysis_summary: matched.analysis_summary,\n  agent_full_analysis: matched.agent_full_analysis,\n  diagnostic_available: matched.diagnostic_available,\n  full_system_report: fullSystemReport,\n  agents_run: Object.keys(domainReports).length\n} }];"
+      },
+      "id": "ca5319a5-590b-4b68-a263-44d5107bf208",
+      "name": "Build CE Report Segment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [576, 784]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://run.googleapis.com/v2/projects/' + $json.gcp_project + '/locations/' + $json.region + '/services' + ($json.cloud_run_service ? '/' + $json.cloud_run_service : '') }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-272, 1808],
+      "id": "538e8857-4edc-443e-8ff3-1a9bc175ee2d",
+      "name": "GCP Cloud Run Diagnostics",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "YOUR_GCP_OAUTH2_CREDENTIAL_ID",
+          "name": "YOUR_GCP_OAUTH2_CREDENTIAL_NAME"
+        },
+        "googleApi": {
+          "id": "YOUR_GCP_SERVICE_ACCOUNT_CREDENTIAL_ID",
+          "name": "YOUR_GCP_SERVICE_ACCOUNT_CREDENTIAL_NAME"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## ALERT\n{{ '- ' + $json.metric_name + ': ' + ($json.current_value || 'n/a') + ' (' + $json.severity + ') on service ' + ($('Resource Enrichment Lookup').item.json.cloud_run_service || 'unknown') + ' [' + $('Resource Enrichment Lookup').item.json.environment + ']' }}\n\n## YOUR DOMAIN: Cloud Run\n\n## EVIDENCE CAPTURE TIME (this is a point-in-time snapshot, not a live query)\n{{ $now.toISO() }}\n\n## LIVE API RESPONSE (captured at the timestamp above -- treat as historical, not current)\n{{ $json.error ? 'API CALL FAILED: ' + $json.error.message : JSON.stringify($json).slice(0, 3000) }}\n\n## YOUR TASK (keep every section brief -- this is billed per token)\nPINPOINTED CAUSE: one line, most specific fact available, PAST TENSE, never \"is\"/\"currently\".\nOBSERVED CONDITION: 2-3 sentences max, past tense, must reference the capture timestamp above explicitly. This becomes the alert's analysis summary. Do not use the words \"root cause\".\nIMMEDIATE ACTION: read-only commands/API calls only, list format.\nSHORT-TERM FIX: one line, human-approved remediation (never a command to execute automatically).\nLONG-TERM: one line, capacity/config recommendation.\nESCALATE TO L2? (Yes/No + one-line reason)\nIf the evidence does not support a finding, write \"No sustained offender observed in the capture window\" rather than inferring one.",
+        "options": {
+          "systemMessage": "You are the Cloud Run Specialist for L1 triage. You receive the Cloud Run Admin API response for the alerting service. Check readiness condition, latest ready revision vs latest created revision (mismatch = failed deploy), and traffic split. Never fabricate SSH/VM-style diagnostics -- this is serverless, no shell access. If the API call itself failed, say that plainly. Never describe this snapshot in present tense -- it reflects only the moment it was captured.",
+          "maxIterations": 4
+        }
+      },
+      "id": "1df5f107-380f-43b8-9154-17ce58ce4928",
+      "name": "CLOUD RUN Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-32, 1776],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [-32, 1904],
+      "id": "60571489-d897-457d-9a77-774cc529faeb",
+      "name": "OpenAI Chat Model (CloudRun)",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction extractLine(text, label) { const rx = new RegExp(label + '\\\\s*:?\\\\s*([^\\\\n]+)', 'i'); const m = text.match(rx); return m ? m[1].trim() : null; }\nfunction extractSection(text, label, stopLabels) {\n  const stopPattern = stopLabels.join('|');\n  const rx = new RegExp(label + '\\\\s*:?\\\\s*([\\\\s\\\\S]*?)(?=\\\\n(?:' + stopPattern + ')|$)', 'i');\n  const m = text.match(rx); return m ? m[1].trim().replace(/\\s+/g, ' ') : null;\n}\nconst STOP_LABELS = ['IMMEDIATE ACTION', 'SHORT-TERM FIX', 'LONG-TERM', 'ESCALATE TO L2'];\nfunction itemSafe(nodeName) {\n  try { return $(nodeName).item.json; } catch (e) {\n    try { return $(nodeName).first().json; } catch (e2) { return {}; }\n  }\n}\nconst agentText = $json.output || $json.text || '';\nlet apiFailed = true;\ntry { apiFailed = !!itemSafe('GCP Cloud Run Diagnostics').error; } catch (e) {}\nconst alert = itemSafe('Resource Enrichment Lookup');\nconst pinpoint = extractLine(agentText, 'PINPOINTED CAUSE') || 'See full analysis for details';\nreturn [{ json: {\n  ...alert,\n  pinpointed_cause: pinpoint,\n  recommendation: extractLine(agentText, 'SHORT-TERM FIX') || extractLine(agentText, 'IMMEDIATE ACTION') || 'See full analysis for recommendation',\n  analysis_summary: extractSection(agentText, 'OBSERVED CONDITION', STOP_LABELS) || 'See full analysis for details',\n  agent_full_analysis: agentText,\n  diagnostic_available: !apiFailed,\n  full_system_report: { CloudRun: pinpoint },\n  agents_run: 1\n} }];\n"
+      },
+      "id": "d7b67854-93fb-49f4-a58d-705b8542cc9f",
+      "name": "Build CloudRun Report Segment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [576, 992]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://bigquery.googleapis.com/bigquery/v2/projects/' + $json.gcp_project + '/datasets/' + $json.bigquery_dataset + '/tables' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "maxResults",
+              "value": "20"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-272, 2000],
+      "id": "3df1e065-0322-4610-ad3a-0a472a1ad2d5",
+      "name": "GCP BigQuery Diagnostics",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "YOUR_GCP_OAUTH2_CREDENTIAL_ID",
+          "name": "YOUR_GCP_OAUTH2_CREDENTIAL_NAME"
+        },
+        "googleApi": {
+          "id": "YOUR_GCP_SERVICE_ACCOUNT_CREDENTIAL_ID",
+          "name": "YOUR_GCP_SERVICE_ACCOUNT_CREDENTIAL_NAME"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## ALERT\n{{ '- ' + $('Resource Enrichment Lookup').item.json.metric_name + ': ' + ($('Resource Enrichment Lookup').item.json.current_value || 'n/a') + ' (' + $('Resource Enrichment Lookup').item.json.severity + ') on dataset ' + ($('Resource Enrichment Lookup').item.json.bigquery_dataset || 'unknown') + ' [' + $('Resource Enrichment Lookup').item.json.environment + ']' }}\n## YOUR DOMAIN: BigQuery\n## EVIDENCE CAPTURE TIME (this is a point-in-time snapshot, not a live query)\n{{ $now.toISO() }}\n## LIVE API RESPONSE (captured at the timestamp above -- treat as historical, not current)\n{{ $json.error ? 'API CALL FAILED: ' + $json.error.message : JSON.stringify($json).slice(0, 3000) }}\n## YOUR TASK (keep every section brief -- this is billed per token)\nPINPOINTED CAUSE: one line, most specific fact available, PAST TENSE, never \"is\"/\"currently\".\nOBSERVED CONDITION: 2-3 sentences max, past tense, must reference the capture timestamp above explicitly. This becomes the alert's analysis summary. Do not use the words \"root cause\".\nIMMEDIATE ACTION: read-only commands/API calls only, list format.\nSHORT-TERM FIX: one line, human-approved remediation (never a command to execute automatically).\nLONG-TERM: one line, capacity/config recommendation.\nESCALATE TO L2? (Yes/No + one-line reason)\nIf the evidence does not support a finding, write \"No sustained offender observed in the capture window\" rather than inferring one.",
+        "options": {
+          "systemMessage": "=You are the BigQuery Specialist for L1 triage. You receive the BigQuery Tables.list API response for the dataset in project {{ $('Resource Enrichment Lookup').item.json.gcp_project }}. Review the tables present, their creation and modification times, and any schema or row count anomalies visible in the metadata. Look for missing expected tables, stale tables that have not been updated recently, or an unexpectedly empty dataset. Never fabricate SSH or VM-style diagnostics. If the API call itself failed, say that plainly. Never describe this snapshot in present tense -- it reflects only the moment it was captured.",
+          "maxIterations": 4
+        }
+      },
+      "id": "e9d5418e-2708-4a0c-83b0-1c8c76522e95",
+      "name": "BIGQUERY Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-32, 2000],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [-32, 2208],
+      "id": "eb9db442-71e6-4f4b-aade-416119e36f81",
+      "name": "OpenAI Chat Model (BigQuery)",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction extractLine(text, label) { const rx = new RegExp(label + '\\\\s*:?\\\\s*([^\\\\n]+)', 'i'); const m = text.match(rx); return m ? m[1].trim() : null; }\nfunction extractSection(text, label, stopLabels) {\n  const stopPattern = stopLabels.join('|');\n  const rx = new RegExp(label + '\\\\s*:?\\\\s*([\\\\s\\\\S]*?)(?=\\\\n(?:' + stopPattern + ')|$)', 'i');\n  const m = text.match(rx); return m ? m[1].trim().replace(/\\s+/g, ' ') : null;\n}\nconst STOP_LABELS = ['IMMEDIATE ACTION', 'SHORT-TERM FIX', 'LONG-TERM', 'ESCALATE TO L2'];\nfunction itemSafe(nodeName) {\n  try { return $(nodeName).item.json; } catch (e) {\n    try { return $(nodeName).first().json; } catch (e2) { return {}; }\n  }\n}\nconst agentText = $json.output || $json.text || '';\nlet apiFailed = true;\ntry { apiFailed = !!itemSafe('GCP BigQuery Diagnostics').error; } catch (e) {}\nconst alert = itemSafe('Resource Enrichment Lookup');\nconst pinpoint = extractLine(agentText, 'PINPOINTED CAUSE') || 'See full analysis for details';\nreturn [{ json: {\n  ...alert,\n  pinpointed_cause: pinpoint,\n  recommendation: extractLine(agentText, 'SHORT-TERM FIX') || extractLine(agentText, 'IMMEDIATE ACTION') || 'See full analysis for recommendation',\n  analysis_summary: extractSection(agentText, 'OBSERVED CONDITION', STOP_LABELS) || 'See full analysis for details',\n  agent_full_analysis: agentText,\n  diagnostic_available: !apiFailed,\n  full_system_report: { BigQuery: pinpoint },\n  agents_run: 1\n} }];\n"
+      },
+      "id": "99278971-1c45-4ae8-87e6-158f88ccb9b3",
+      "name": "Build BigQuery Report Segment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [592, 1216]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst record = $json;\nfunction estimateTokens(text) { return text ? Math.ceil(String(text).length / 4) : 0; }\nconst ESTIMATED_PROMPT_TOKENS_PER_CALL = 900;\nconst completionTokens = estimateTokens(record.agent_full_analysis);\nconst promptTokens = ESTIMATED_PROMPT_TOKENS_PER_CALL * Math.max(1, record.agents_run || 1);\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.detailStore) staticData.detailStore = {};\nif (!staticData.tokenUsage) staticData.tokenUsage = { totalEstimatedTokens: 0, callCount: 0 };\nstaticData.tokenUsage.totalEstimatedTokens += (promptTokens + completionTokens);\nstaticData.tokenUsage.callCount += (record.agents_run || 0);\nconst tokenUsage = {\n  accuracy_note: 'Character-count estimate (~4 chars/token), not exact OpenAI billing. Use n8n Insights tab for exact figures.',\n  estimated_prompt_tokens_this_alert: promptTokens,\n  estimated_completion_tokens_this_alert: completionTokens,\n  estimated_total_tokens_this_alert: promptTokens + completionTokens,\n  agents_run_this_alert: record.agents_run || 0,\n  estimated_total_tokens_since_activation: staticData.tokenUsage.totalEstimatedTokens,\n  estimated_ai_calls_since_activation: staticData.tokenUsage.callCount\n};\nconst cached = { ...record, token_usage: tokenUsage, cached_at: new Date().toISOString() };\nstaticData.detailStore[record.alert_number] = cached;\nreturn [{ json: cached }];\n"
+      },
+      "id": "050b6f89-9832-4eb7-ac6a-96b6e51e404b",
+      "name": "Cache Alert Record + Track Tokens",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 816]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE: Build L1 Notification\n// PURPOSE: Construct xMatters/alerting L1 alert description text\n// ============================================================\nconst a = $json;\nconst SEVERITY_MAP = {\n  critical : 'CRITICAL',\n  high     : 'MAJOR',\n  medium   : 'MINOR',\n  low      : 'WARNING'\n};\nconst xmattersSeverity = SEVERITY_MAP[\n  String(a.severity || 'medium').toLowerCase()\n] || 'WARNING';\nconst resumeUrl = $execution?.resumeUrl;\nif (!resumeUrl) {\n  return {\n    json: {\n      ...a,\n      error      : 'resumeUrl unavailable -- node must execute upstream of an active Wait node.',\n      error_code : 'MISSING_RESUME_URL',\n      failed_at  : new Date().toISOString()\n    }\n  };\n}\nconst sep         = resumeUrl.includes('?') ? '&' : '?';\nconst baseUrl     = resumeUrl.split('/webhook-waiting/')[0];\nconst escalateUrl = `${resumeUrl}${sep}decision=escalate&alert_id=${encodeURIComponent(a.alert_number)}`;\nconst detailUrl   = `${baseUrl}/webhook/l1-triage-detail?alert_id=${encodeURIComponent(a.alert_number)}&audience=l1`;\nconst acknowledgeUrl = `${resumeUrl}${sep}decision=acknowledge&alert_id=${encodeURIComponent(a.alert_number)}`;\nconst ackPromoteUrl  = `${resumeUrl}${sep}decision=ack-promote&alert_id=${encodeURIComponent(a.alert_number)}`;\nconst staticData = $getWorkflowStaticData('global');\nif (staticData.detailStore?.[a.alert_number]) {\n  staticData.detailStore[a.alert_number].escalate_url = escalateUrl;\n}\nconst CATEGORY_MAP = {\n  cpu         : 'CPU ALERT',\n  memory      : 'MEMORY ALERT',\n  network     : 'NETWORK ALERT',\n  application : 'APPLICATION ALERT',\n  storage     : 'STORAGE ALERT',\n  disk        : 'STORAGE ALERT',\n  security    : 'SECURITY ALERT',\n  bigquery    : 'BIGQUERY ALERT',\n  cloud_run   : 'CLOUD RUN ALERT',\n  cloudrun    : 'CLOUD RUN ALERT',\n  latency     : 'LATENCY ALERT',\n  error_rate  : 'ERROR RATE ALERT'\n};\nconst rawMetric     = String(a.metric_name || 'system').toLowerCase().replace(/\\s+/g, '_');\nconst alertCategory = CATEGORY_MAP[rawMetric]\n  || `${rawMetric.toUpperCase().replace(/_/g, ' ')} ALERT`;\nconst serviceName = a.service_name || a.cmdb_ci || 'Unknown Service';\nconst environment = a.environment  || 'unknown-env';\nconst target = (\n  a.node              ||\n  a.cmdb_ci           ||\n  a.cloud_run_service ||\n  a.bigquery_dataset  ||\n  'unknown-target'\n);\nconst pinpointedCause = a.pinpointed_cause || 'AI analysis did not determine a pinpointed cause.';\nconst recommendation  = a.recommendation  || 'Review diagnostic report and validate service condition.';\nconst analysisSummary = a.analysis_summary || 'No analysis summary available.';\nconst SEP = ' | ';\nconst DIV = ' || ';\nconst SNOW_PREFIX_LEN = Number($vars.SNOW_PREFIX_LEN) || 63;\nconst SNOW_HARD_LIMIT = Number($vars.SNOW_HARD_LIMIT) || 1000;\nconst SAFE_LIMIT      = SNOW_HARD_LIMIT - SNOW_PREFIX_LEN - 20;\nconst fixedPart = [\n  `[L1 TRIAGE] [${xmattersSeverity}] ${alertCategory}`,\n  DIV,\n  `Target: ${target} (${environment})`,\n  DIV,\n  `Cause: ${pinpointedCause}`,\n  `Action: ${recommendation}`,\n  `Analysis:`\n].join(SEP);\nconst urlTail = [\n  DIV,\n  `Notify L2: ${escalateUrl}`,\n  DIV,\n  `Full Report: ${detailUrl}`\n].join(SEP);\nconst FIXED_LEN       = fixedPart.length;\nconst URL_LEN         = urlTail.length;\nconst ANALYSIS_BUDGET = Math.max(40, SAFE_LIMIT - FIXED_LEN - URL_LEN);\nconst safeAnalysis = analysisSummary.length > ANALYSIS_BUDGET\n  ? analysisSummary.slice(0, ANALYSIS_BUDGET).trim() + '...'\n  : analysisSummary;\nconst alertText = [\n  `[L1 TRIAGE] [${xmattersSeverity}] ${alertCategory}`,\n  DIV,\n  `Target: ${target} (${environment})`,\n  DIV,\n  `Cause: ${pinpointedCause}`,\n  `Action: ${recommendation}`,\n  `Analysis: ${safeAnalysis}`,\n  urlTail\n].join(SEP);\nconst xmattersSubject = `[L1][${xmattersSeverity}] ${alertCategory} -- ${serviceName} (${environment})`;\nreturn {\n  json: {\n    ...a,\n    xmatters_severity : xmattersSeverity,\n    alert_category    : alertCategory,\n    l1_alert_text     : alertText,\n    l1_alert_subject  : xmattersSubject,\n    detail_url        : detailUrl,\n    escalate_url      : escalateUrl,\n    acknowledge_url   : acknowledgeUrl,\n    ack_promote_url   : ackPromoteUrl,\n    alert_char_count  : alertText.length,\n    analysis_budget   : ANALYSIS_BUDGET,\n    fixed_len         : FIXED_LEN,\n    url_len           : URL_LEN,\n    safe_limit        : SAFE_LIMIT,\n    built_at          : new Date().toISOString()\n  }\n};"
+      },
+      "id": "5c2a0084-fb2c-4d65-92c3-557105645ecc",
+      "name": "Build L1 Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1280, 816]
+    },
+    {
+      "parameters": {
+        "url": "https://YOUR-XMATTERS-INSTANCE/api/sendAlert",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "@key",
+              "value": "={{ $json.xmatters_app_key_l1 }}"
+            },
+            {
+              "name": "@foreignKey",
+              "value": "={{ $json.xmatters_foreign_key_l1 }}"
+            },
+            {
+              "name": "level",
+              "value": "L1"
+            },
+            {
+              "name": "@type",
+              "value": "ALERT"
+            },
+            {
+              "name": "@version",
+              "value": "alertapi-0.1"
+            },
+            {
+              "name": "object",
+              "value": "YOUR-OBJECT-NAME"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.l1_alert_text }}"
+            },
+            {
+              "name": "severity",
+              "value": "=WARNING"
+            },
+            {
+              "name": "recipients",
+              "value": "={{ $json.xmatters_recipients_l1.join(',') }}"
+            },
+            {
+              "name": "channel",
+              "value": "EMAIL"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1520, 816],
+      "id": "f106f00e-b138-49c9-a29f-e6e002986483",
+      "name": "Send xMatters L1 Alert",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "notes": "Replace YOUR-XMATTERS-INSTANCE with your real xMatters endpoint URL."
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "limitWaitTime": true,
+        "resumeAmount": 30,
+        "resumeUnit": "minutes",
+        "options": {}
+      },
+      "id": "eb644c20-939d-4b78-94dd-e5649e26accb",
+      "name": "Wait for L1 Decision",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2016, 816],
+      "webhookId": "l1-decision-wait",
+      "notes": "Timeout set to 30 minutes. Adjust resumeAmount to your preferred L1 response window."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.query?.decision || $json.body?.decision }}",
+                    "rightValue": "escalate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ESCALATE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.query?.decision || $json.body?.decision }}",
+                    "rightValue": "ack-promote",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ACK_PROMOTE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.query?.decision || $json.body?.decision }}",
+                    "rightValue": "acknowledge",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ACKNOWLEDGED"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.xmatters_severity }}",
+                    "rightValue": "Critical,Major",
+                    "operator": {
+                      "type": "string",
+                      "operation": "regex",
+                      "caseSensitive": false
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "TIMEOUT_AUTO_ESCALATE"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "NO_ACTION_TREATED_AS_RESOLVED"
+        }
+      },
+      "id": "aa823792-70a2-40a4-ae8b-c090677f0329",
+      "name": "L1 to L2 Escalation Gate",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [2208, 784]
+    },
+    {
+      "parameters": {},
+      "id": "f3909147-50ea-455b-8702-fefa61acf456",
+      "name": "Resolved - No Further Action",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2640, 912]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE: Build L2 Escalation Alert Text\n// ============================================================\nconst a = $('Build L1 Notification').item.json;\nconst resumeUrl = $execution?.resumeUrl;\nif (!resumeUrl) {\n  return {\n    json: {\n      ...a,\n      error      : 'resumeUrl unavailable during L2 escalation build.',\n      error_code : 'MISSING_RESUME_URL',\n      failed_at  : new Date().toISOString()\n    }\n  };\n}\nconst SEVERITY_MAP = {\n  critical : 'CRITICAL',\n  high     : 'MAJOR',\n  medium   : 'MINOR',\n  low      : 'WARNING'\n};\nconst xmattersSeverity = a.xmatters_severity\n  || SEVERITY_MAP[String(a.severity || 'medium').toLowerCase()]\n  || 'WARNING';\nconst alertCategory = a.alert_category\n  || `${String(a.metric_name || 'SYSTEM').toUpperCase()} ALERT`;\nconst serviceName     = a.service_name     || a.cmdb_ci  || 'Unknown Service';\nconst environment     = a.environment      || 'unknown-env';\nconst assignmentGroup = a.assignment_group || 'N/A';\nconst target = (\n  a.node              ||\n  a.cmdb_ci           ||\n  a.cloud_run_service ||\n  a.bigquery_dataset  ||\n  'unknown-target'\n);\nconst pinpointedCause = a.pinpointed_cause || 'No pinpointed cause available from L1 analysis.';\nconst recommendation  = a.recommendation  || 'Review diagnostic report and validate service condition.';\nconst analysisSummary = a.analysis_summary || 'No analysis summary available.';\nconst impact          = a.business_impact  || 'Potential service degradation detected.';\nconst SEP = ' | ';\nconst DIV = ' || ';\nconst SNOW_PREFIX_LEN = Number($vars.SNOW_PREFIX_LEN) || 63;\nconst SNOW_HARD_LIMIT = Number($vars.SNOW_HARD_LIMIT) || 1000;\nconst SAFE_LIMIT      = SNOW_HARD_LIMIT - SNOW_PREFIX_LEN - 20;\nconst fixedPart = [\n  `[L2 ESCALATION] [${xmattersSeverity}] ${alertCategory}`,\n  DIV,\n  `L1 COULD NOT RESOLVE OR DID NOT RESPOND IN TIME`,\n  DIV,\n  `Target: ${target} (${environment})`,\n  `Group: ${assignmentGroup}`,\n  DIV,\n  `L1 Cause: ${pinpointedCause}`,\n  `L1 Action: ${recommendation}`,\n  `Impact: ${impact}`,\n  `L1 Analysis:`\n].join(SEP);\nconst ANALYSIS_BUDGET = Math.max(60, SAFE_LIMIT - fixedPart.length);\nconst safeAnalysis = analysisSummary.length > ANALYSIS_BUDGET\n  ? analysisSummary.slice(0, ANALYSIS_BUDGET).trim() + '...'\n  : analysisSummary;\nconst l2AlertText = [\n  `[L2 ESCALATION] [${xmattersSeverity}] ${alertCategory}`,\n  DIV,\n  `L1 COULD NOT RESOLVE OR DID NOT RESPOND IN TIME`,\n  DIV,\n  `Target: ${target} (${environment})`,\n  `Group: ${assignmentGroup}`,\n  DIV,\n  `L1 Cause: ${pinpointedCause}`,\n  `L1 Action: ${recommendation}`,\n  `Impact: ${impact}`,\n  `L1 Analysis: ${safeAnalysis}`\n].join(SEP);\nconst l2Subject = `[L2 ESCALATION][${xmattersSeverity}] ${alertCategory} -- ${serviceName} (${environment})`;\nfunction esc(s) {\n  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\nfunction fmtDate(iso) {\n  try { return new Date(iso).toISOString().replace('T', ' ').slice(0, 19) + ' UTC'; }\n  catch (e) { return iso || 'n/a'; }\n}\nconst fullAnalysis = a.agent_full_analysis || 'No analysis available.';\nconst diagMatch = fullAnalysis.match(/diagnostic commands?:?([\\s\\S]*?)(?:\\n\\n|$)/i);\nconst diagnosticCommands = diagMatch ? diagMatch[1].trim() : 'None provided by agent.';\nconst l2_full_report_text = `\n======================================================\nL2 ESCALATION -- L1 COULD NOT RESOLVE\n${xmattersSeverity} | ${alertCategory}\n======================================================\n\nAlert: ${a.l1_alert_subject || l2Subject}\nAlert ID: ${a.alert_number}  |  ${fmtDate(a.received_at)}\n\nStatus: Open -- Escalated to L2\n\nHost             : ${target}\nEnvironment      : ${environment}\nMetric           : ${a.metric_name}\nCurrent Value    : ${a.current_value ?? 'n/a'}\nSeverity         : ${xmattersSeverity}\nAssignment Group : ${assignmentGroup}\nHandled By       : AI L1 Triage Agent\n\nAI AGENT ANALYSIS\n------------------\n1. PINPOINTED CAUSE\n${pinpointedCause}\n\n2. RECOMMENDATION / IMMEDIATE ACTION\n${recommendation}\n\n3. IMPACT ASSESSMENT\n${impact}\n\n4. FULL ANALYSIS\n${fullAnalysis}\n\n5. DIAGNOSTIC COMMANDS\n${diagnosticCommands}\n\n======================================================\nACTIONS\n======================================================\n1. Acknowledge: ${a.acknowledge_url}\n2. Ack & Promote to Incident: ${a.ack_promote_url}\n3. Escalate to next level: ${a.escalate_url}\n\n======================================================\nThis is an automated L1 triage alert generated by the Multi-Agent SRE System\n======================================================\n`.trim();\nconst l2_full_report_html = `\n<div style=\"font-family:Consolas,monospace;white-space:pre-wrap;max-width:800px;\">\n<h2 style=\"color:#b00020;\">L2 ESCALATION -- L1 COULD NOT RESOLVE</h2>\n<p><strong>${esc(xmattersSeverity)} | ${esc(alertCategory)}</strong></p>\n<p><strong>Alert:</strong> ${esc(a.l1_alert_subject || l2Subject)}<br/>\n<strong>Alert ID:</strong> ${esc(a.alert_number)} | ${esc(fmtDate(a.received_at))}</p>\n<p><strong>Status:</strong> Open -- Escalated to L2</p>\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse;\">\n<tr><td><strong>Host</strong></td><td>${esc(target)}</td></tr>\n<tr><td><strong>Environment</strong></td><td>${esc(environment)}</td></tr>\n<tr><td><strong>Metric</strong></td><td>${esc(a.metric_name)}</td></tr>\n<tr><td><strong>Current Value</strong></td><td>${esc(a.current_value ?? 'n/a')}</td></tr>\n<tr><td><strong>Severity</strong></td><td>${esc(xmattersSeverity)}</td></tr>\n<tr><td><strong>Assignment Group</strong></td><td>${esc(assignmentGroup)}</td></tr>\n<tr><td><strong>Handled By</strong></td><td>AI L1 Triage Agent</td></tr>\n</table>\n<h3>AI AGENT ANALYSIS</h3>\n<p><strong>1. Pinpointed Cause</strong><br/>${esc(pinpointedCause)}</p>\n<p><strong>2. Recommendation / Immediate Action</strong><br/>${esc(recommendation)}</p>\n<p><strong>3. Impact Assessment</strong><br/>${esc(impact)}</p>\n<p><strong>4. Full Analysis</strong><br/>${esc(fullAnalysis)}</p>\n<p><strong>5. Diagnostic Commands</strong><br/>${esc(diagnosticCommands)}</p>\n<h3>Actions</h3>\n<ol>\n<li>Acknowledge: <a href=\"${esc(a.acknowledge_url)}\">${esc(a.acknowledge_url)}</a></li>\n<li>Ack &amp; Promote to Incident: <a href=\"${esc(a.ack_promote_url)}\">${esc(a.ack_promote_url)}</a></li>\n<li>Escalate to next level: <a href=\"${esc(a.escalate_url)}\">${esc(a.escalate_url)}</a></li>\n</ol>\n<hr/>\n<p style=\"color:#666;\">This is an automated L1 triage alert generated by the Multi-Agent SRE System.</p>\n</div>\n`.trim();\nreturn {\n  json: {\n    ...a,\n    l2_alert_text        : l2AlertText,\n    l2_alert_subject     : l2Subject,\n    l2_char_count        : l2AlertText.length,\n    analysis_budget      : ANALYSIS_BUDGET,\n    l2_full_report_text  : l2_full_report_text,\n    l2_full_report_html  : l2_full_report_html,\n    built_at             : new Date().toISOString()\n  }\n};"
+      },
+      "id": "11e359e5-bd11-4b2a-9780-77ab1e5ac285",
+      "name": "Build L2 Escalation Alert Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2592, 704]
+    },
+    {
+      "parameters": {
+        "url": "https://YOUR-XMATTERS-INSTANCE/api/sendAlert",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "@key",
+              "value": "={{ $json.xmatters_app_key_l2 }}"
+            },
+            {
+              "name": "@foreignKey",
+              "value": "={{ $json.xmatters_foreign_key_l2 }}"
+            },
+            {
+              "name": "level",
+              "value": "L2"
+            },
+            {
+              "name": "@type",
+              "value": "ALERT"
+            },
+            {
+              "name": "@version",
+              "value": "alertapi-0.1"
+            },
+            {
+              "name": "object",
+              "value": "YOUR-OBJECT-NAME"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.l2_alert_text }}"
+            },
+            {
+              "name": "severity",
+              "value": "=WARNING"
+            },
+            {
+              "name": "recipients",
+              "value": "={{ $json.xmatters_recipients_l2.join(',') }}"
+            },
+            {
+              "name": "channel",
+              "value": "EMAIL"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [2816, 704],
+      "id": "86e8257f-6d4d-4358-8b2f-875464b7f8a7",
+      "name": "Send xMatters L2 Escalation Alert",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "notes": "Replace YOUR-XMATTERS-INSTANCE with your real xMatters endpoint URL."
+    },
+    {
+      "parameters": {},
+      "id": "0addf6af-60fa-4d6c-8d1b-37c083b0e0d5",
+      "name": "Execution Complete (L2 Escalated)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [3296, 688]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst alert = $json;\nconst note = `platform_type '${alert.platform_type}' from Resource Enrichment Lookup did not match any known Switch branch (compute_engine/cloud_run/bigquery). Check the RESOURCE_MAP entry for assignment_group '${alert.assignment_group}'.`;\nreturn [{ json: { ...alert, pinpointed_cause: 'Unrecognised platform_type -- see enrichment mapping', recommendation: 'Fix the RESOURCE_MAP entry for this resource', analysis_summary: note, agent_full_analysis: note, diagnostic_available: false, full_system_report: { Unknown: note }, agents_run: 0 } }];\n"
+      },
+      "id": "d6b81d08-ed55-49f1-b969-efe6ee7a9f73",
+      "name": "Platform Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-112, 2496]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "alert-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ef593c60-0139-4cb3-996a-5ae44f6a2c81",
+      "name": "Alert Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-2896, 224],
+      "webhookId": "YOUR-WEBHOOK-ID",
+      "notes": "Accepts alert POST bodies. Replace webhookId with your own generated ID. One alert per call."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "48467794-ed84-4ac8-a801-02b9844db55b",
+              "leftValue": "={{ $json.enrichment_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-1008, 208],
+      "id": "f2c8be1e-2054-49d3-a3ae-4dc09e40cfd2",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE: Resource Enrichment Lookup\n// PURPOSE: Match alert to known resource config\n// INSTRUCTIONS: Replace all placeholder values below with your\n// own GCP project IDs, xMatters keys, group names, and email\n// addresses. Add/remove entries in RESOURCE_MAP as needed.\n// ============================================================\nconst alert = $json;\nconst RESOURCE_MAP = {\n  'your-service-name-here': {\n    gcp_project                 : 'YOUR-GCP-PROJECT-ID',\n    platform_type               : 'compute_engine',\n    instance_id                 : 'YOUR-INSTANCE-ID',\n    region                      : 'YOUR-GCP-REGION',\n    ssh_credential_key          : 'YOUR_SSH_CREDENTIAL_KEY_NAME',\n    cloud_run_service           : 'YOUR-CLOUD-RUN-SERVICE-NAME',\n    bigquery_dataset            : 'YOUR-BIGQUERY-DATASET-NAME',\n    servicenow_assignment_group : 'YOUR-ASSIGNMENT-GROUP',\n    service_name                : 'YOUR-SERVICE-DISPLAY-NAME',\n    xmatters_group_l1           : 'YOUR-XMATTERS-L1-GROUP',\n    xmatters_app_key_l1         : 'YOUR-XMATTERS-APP-KEY-L1',\n    xmatters_foreign_key_l1     : 'YOUR-XMATTERS-FOREIGN-KEY-L1',\n    xmatters_group_l2           : 'YOUR-XMATTERS-L2-GROUP',\n    xmatters_app_key_l2         : 'YOUR-XMATTERS-APP-KEY-L2',\n    xmatters_foreign_key_l2     : 'YOUR-XMATTERS-FOREIGN-KEY-L2',\n    xmatters_recipients_l1      : ['l1-oncall@your-domain.com'],\n    xmatters_recipients_l2      : ['l2-oncall@your-domain.com'],\n    xmatters_webhook_url        : 'https://your-xmatters-instance.xmatters.com/api/integration/1/functions/YOUR_UUID/triggers'\n  },\n  'your-second-service-here': {\n    gcp_project                 : 'YOUR-GCP-PROJECT-ID',\n    platform_type               : 'cloud_run',\n    instance_id                 : null,\n    region                      : 'YOUR-GCP-REGION',\n    ssh_credential_key          : null,\n    cloud_run_service           : 'YOUR-CLOUD-RUN-SERVICE-NAME',\n    bigquery_dataset            : null,\n    servicenow_assignment_group : 'YOUR-ASSIGNMENT-GROUP',\n    service_name                : 'YOUR-SERVICE-DISPLAY-NAME',\n    xmatters_group_l1           : 'YOUR-XMATTERS-L1-GROUP',\n    xmatters_app_key_l1         : 'YOUR-XMATTERS-APP-KEY-L1',\n    xmatters_foreign_key_l1     : 'YOUR-XMATTERS-FOREIGN-KEY-L1',\n    xmatters_group_l2           : 'YOUR-XMATTERS-L2-GROUP',\n    xmatters_app_key_l2         : 'YOUR-XMATTERS-APP-KEY-L2',\n    xmatters_foreign_key_l2     : 'YOUR-XMATTERS-FOREIGN-KEY-L2',\n    xmatters_recipients_l1      : ['l1-oncall@your-domain.com'],\n    xmatters_recipients_l2      : ['l2-oncall@your-domain.com'],\n    xmatters_webhook_url        : 'https://your-xmatters-instance.xmatters.com/api/integration/1/functions/YOUR_UUID/triggers'\n  },\n  'your-bigquery-service-here': {\n    gcp_project                 : 'YOUR-GCP-PROJECT-ID',\n    platform_type               : 'bigquery',\n    instance_id                 : null,\n    region                      : 'YOUR-GCP-REGION',\n    ssh_credential_key          : null,\n    cloud_run_service           : null,\n    bigquery_dataset            : 'YOUR-BIGQUERY-DATASET-NAME',\n    servicenow_assignment_group : 'YOUR-ASSIGNMENT-GROUP',\n    service_name                : 'YOUR-SERVICE-DISPLAY-NAME',\n    xmatters_group_l1           : 'YOUR-XMATTERS-L1-GROUP',\n    xmatters_app_key_l1         : 'YOUR-XMATTERS-APP-KEY-L1',\n    xmatters_foreign_key_l1     : 'YOUR-XMATTERS-FOREIGN-KEY-L1',\n    xmatters_group_l2           : 'YOUR-XMATTERS-L2-GROUP',\n    xmatters_app_key_l2         : 'YOUR-XMATTERS-APP-KEY-L2',\n    xmatters_foreign_key_l2     : 'YOUR-XMATTERS-FOREIGN-KEY-L2',\n    xmatters_recipients_l1      : ['l1-oncall@your-domain.com'],\n    xmatters_recipients_l2      : ['l2-oncall@your-domain.com'],\n    xmatters_webhook_url        : 'https://your-xmatters-instance.xmatters.com/api/integration/1/functions/YOUR_UUID/triggers'\n  }\n};\n\nconst cmdb_ci_key          = (alert.cmdb_ci         || '').toLowerCase().trim();\nconst assignment_group_key = (alert.assignment_group || '').toLowerCase().trim();\nconst metric_key           = (alert.metric_name      || '').toLowerCase().trim();\n\nlet enrichment = null;\nlet lookup_key = null;\n\nfor (const [key, value] of Object.entries(RESOURCE_MAP)) {\n  if (key.toLowerCase() === cmdb_ci_key) {\n    enrichment = value;\n    lookup_key = key;\n    break;\n  }\n}\n\nif (!enrichment) {\n  for (const [key, value] of Object.entries(RESOURCE_MAP)) {\n    if (key.toLowerCase() === assignment_group_key) {\n      enrichment = value;\n      lookup_key = key;\n      break;\n    }\n  }\n}\n\nif (enrichment) {\n  if (metric_key === 'bigquery' && enrichment.platform_type !== 'bigquery') {\n    enrichment = {\n      ...enrichment,\n      platform_type    : 'bigquery',\n      bigquery_dataset : enrichment.bigquery_dataset || cmdb_ci_key || 'unknown'\n    };\n  }\n  if ((metric_key === 'cloud_run' || metric_key === 'cloudrun')\n      && enrichment.platform_type !== 'cloud_run') {\n    enrichment = {\n      ...enrichment,\n      platform_type     : 'cloud_run',\n      cloud_run_service : enrichment.cloud_run_service || cmdb_ci_key || 'unknown'\n    };\n  }\n}\n\nif (!enrichment) {\n  return {\n    json: {\n      ...alert,\n      enrichment_found                   : false,\n      _lookup_key                        : null,\n      _lookup_attempted_cmdb_ci          : cmdb_ci_key,\n      _lookup_attempted_assignment_group : assignment_group_key\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...alert,\n    ...enrichment,\n    enrichment_found : true,\n    _lookup_key      : lookup_key\n  }\n};"
+      },
+      "id": "8bb8c440-1d3a-437c-ac6b-115fd20a8934",
+      "name": "Resource Enrichment Lookup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1568, 208],
+      "notes": "RESOURCE_MAP: Add your services here. Keys are cmdb_ci or assignment_group values. Replace all YOUR-* placeholders with real values for your environment."
+    },
+    {
+      "parameters": {
+        "errorMessage": "=Enrichment failed: no RESOURCE_MAP entry found for cmdb_ci={{ $json.cmdb_ci }} assignment_group={{ $json.assignment_group }} environment={{ $json.environment }}. Add this resource to the RESOURCE_MAP in the Resource Enrichment Lookup node before alerts for this service can be processed."
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [-992, 448],
+      "id": "480e74b3-0027-4354-82d1-b1f020d8d1bb",
+      "name": "Stop and Error"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE: Log Auto-Acknowledgment\n// PURPOSE: Agent self-acknowledges the L1 alert immediately\n// after notifying xMatters -- no human needed for ack.\n// ============================================================\nconst a = $json;\nconst staticData = $getWorkflowStaticData('global');\nif (staticData.detailStore?.[a.alert_number]) {\n  staticData.detailStore[a.alert_number].l1_status      = 'Auto-Acknowledged';\n  staticData.detailStore[a.alert_number].acknowledged_at = new Date().toISOString();\n  staticData.detailStore[a.alert_number].acknowledged_by = 'L1 AI Triage Agent';\n}\nreturn {\n  json: {\n    ...a,\n    l1_status        : 'Auto-Acknowledged',\n    acknowledged_by  : 'L1 AI Triage Agent',\n    acknowledged_at  : new Date().toISOString()\n  }\n};"
+      },
+      "id": "f6cffef7-783c-4e60-9a3e-11664f9b9227",
+      "name": "Log Auto-Acknowledgment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1712, 816]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-SERVICENOW-INSTANCE.service-now.com/api/now/table/incident",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"short_description\": `L1 Auto-Triage: ${$json.metric_name} alert on ${$json.node} (${$json.environment})`,\n  \"description\": $json.agent_full_analysis,\n  \"urgency\": ($json.xmatters_severity === 'Critical') ? '1' : ($json.xmatters_severity === 'Major' ? '2' : '3'),\n  \"assignment_group\": $json.assignment_group,\n  \"cmdb_ci\": $json.cmdb_ci,\n  \"u_alert_number\": $json.alert_number\n} }}",
+        "options": {}
+      },
+      "id": "3fddf26b-04a0-4df2-b4ca-fb1746157af6",
+      "name": "Create ServiceNow Incident",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [2464, 1072],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "disabled": true,
+      "notes": "SCAFFOLD, DISABLED. Replace YOUR-SERVICENOW-INSTANCE with your real instance URL. Configure Basic Auth credential. Verify field names match your ServiceNow schema before enabling."
+    },
+    {
+      "parameters": {
+        "fromEmail": "YOUR-FROM-EMAIL@YOUR-DOMAIN.COM",
+        "toEmail": "={{ $('Build L2 Escalation Alert Text').item.json.xmatters_recipients_l2.join(',') }}",
+        "subject": "={{ $('Build L2 Escalation Alert Text').item.json.l2_alert_subject }}",
+        "html": "={{ $('Build L2 Escalation Alert Text').item.json.l2_full_report_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [3024, 704],
+      "id": "58cc0d92-08ab-42c2-8e22-1fe13bcaca41",
+      "name": "Send FullReport Email to L2",
+      "webhookId": "YOUR-WEBHOOK-ID",
+      "notesInFlow": true,
+      "credentials": {
+        "smtp": {
+          "id": "YOUR_SMTP_CREDENTIAL_ID",
+          "name": "YOUR_SMTP_CREDENTIAL_NAME"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE: Dead Letter Log\n// PURPOSE: Operational visibility when diagnostics failed.\n// ============================================================\nconst a = $json;\nif (a.diagnostic_available === false) {\n  const staticData = $getWorkflowStaticData('global');\n  if (!staticData.deadLetterLog) staticData.deadLetterLog = [];\n  staticData.deadLetterLog.push({\n    alert_number : a.alert_number,\n    metric_name  : a.metric_name,\n    node         : a.node,\n    environment  : a.environment,\n    severity     : a.severity,\n    reason       : 'diagnostic_available=false -- SSH/API call to the resource likely failed',\n    logged_at    : new Date().toISOString()\n  });\n  if (staticData.deadLetterLog.length > 500) {\n    staticData.deadLetterLog = staticData.deadLetterLog.slice(-500);\n  }\n}\nreturn { json: a };"
+      },
+      "id": "b2fd163d-882c-4fbd-a983-a543531117d5",
+      "name": "Dead Letter Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1408, 1168]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE: Dedup Check\n// PURPOSE: Suppress duplicate alerts within dedup window.\n// Override window with $vars.DEDUP_WINDOW_MINUTES (default 30).\n// ============================================================\nconst a = $json;\nconst dedupWindowMinutes = Number($vars.DEDUP_WINDOW_MINUTES) || 30;\nconst key = `${(a.cmdb_ci || 'unknown').toLowerCase()}::${(a.metric_name || 'unknown').toLowerCase()}::${(a.environment || 'unknown').toLowerCase()}`;\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.inFlightAlerts) staticData.inFlightAlerts = {};\nconst now = Date.now();\nconst existing = staticData.inFlightAlerts[key];\nconst windowMs = dedupWindowMinutes * 60 * 1000;\nlet is_duplicate = false;\nlet duplicate_of = null;\nif (existing && (now - existing.since) < windowMs) {\n  is_duplicate = true;\n  duplicate_of = existing.alert_number;\n} else {\n  staticData.inFlightAlerts[key] = { since: now, alert_number: a.alert_number };\n}\nreturn {\n  json: {\n    ...a,\n    is_duplicate_alert : is_duplicate,\n    duplicate_of_alert : duplicate_of,\n    dedup_key          : key\n  }\n};"
+      },
+      "id": "db0223ae-64c5-4ec7-adb8-43b9dcb91dc7",
+      "name": "Dedup Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1408, 208]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "dedup-gate-cond-1",
+              "leftValue": "={{ $json.is_duplicate_alert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "ff950b3a-5d3e-4d02-bf56-d7c4a5cac284",
+      "name": "Is Duplicate Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-1184, 208]
+    },
+    {
+      "parameters": {},
+      "id": "67f6479b-bbae-4f52-9e51-b738e76b95a9",
+      "name": "Duplicate Alert - Suppressed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [-1008, -16]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE: Check API Key (webhook authentication)\n// PURPOSE: Shared-secret check on inbound alert webhook.\n// Set $vars.ALERT_INTAKE_API_KEY in n8n Settings -> Variables.\n// Callers must send the key in the 'x-api-key' header.\n// If variable is not set, all requests pass (backward-compatible).\n// ============================================================\nconst expectedKey = $vars.ALERT_INTAKE_API_KEY;\nconst providedKey = $json.headers?.['x-api-key'];\nconst auth_configured = !!expectedKey;\nconst auth_passed = !auth_configured || providedKey === expectedKey;\nreturn {\n  json: {\n    ...$json,\n    auth_configured,\n    auth_passed\n  }\n};"
+      },
+      "id": "5d5af59c-d37b-45d4-afd7-8237beae3ca6",
+      "name": "Check API Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-2672, 224]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "auth-if-cond-1",
+              "leftValue": "={{ $json.auth_passed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "7d022cd7-aa02-4b9e-9f32-482512e5bbba",
+      "name": "Is Authenticated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-2496, 224]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"unauthorized\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "08a60665-66ed-420a-bf73-d1b7618a8840",
+      "name": "Respond - Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-2336, 384]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// NODE: Validate Alert Payload\n// PURPOSE: Reject malformed alerts early (400).\n// ============================================================\nconst a = $json;\nconst errors = [];\nif (!a.cmdb_ci && !a.assignment_group) errors.push('cmdb_ci or assignment_group is required');\nif (!a.metric_name) errors.push('metric_name could not be determined');\nif (!a.severity) errors.push('severity could not be determined');\nif (!a.alert_number) errors.push('alert_number could not be generated');\nreturn {\n  json: {\n    ...a,\n    validation_passed : errors.length === 0,\n    validation_errors : errors\n  }\n};"
+      },
+      "id": "a883b580-fcda-4ff3-9209-717f53a51e5d",
+      "name": "Validate Alert Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-2112, 224]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "validation-if-cond-1",
+              "leftValue": "={{ $json.validation_passed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "9136babb-776a-4f0b-bd0f-36aa19a8b294",
+      "name": "Is Payload Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-1952, 224]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"accepted\", \"alert_number\": $json.alert_number } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "ab981d48-5bf8-47b0-ad82-b0f850a4d463",
+      "name": "Respond - Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-1744, 208]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"rejected\", \"errors\": $json.validation_errors } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "27a41757-fe3c-44a2-b962-9becbb50b38a",
+      "name": "Respond - Bad Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-1744, 432]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-XMATTERS-INSTANCE/api/REPLACE-WITH-REAL-ACK-ENDPOINT",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "@key",
+              "value": "={{ $json.xmatters_app_key_l1 }}"
+            },
+            {
+              "name": "@foreignKey",
+              "value": "={{ $json.xmatters_foreign_key_l1 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5d5250fe-3cbd-4a8a-9d32-89503f6958ad",
+      "name": "xMatters Acknowledge Event (SCAFFOLD)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1904, 1008],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "disabled": true,
+      "continueOnFail": true,
+      "onError": "continueRegularOutput",
+      "notes": "SCAFFOLD, DISABLED. Replace YOUR-XMATTERS-INSTANCE and REPLACE-WITH-REAL-ACK-ENDPOINT with your real xMatters acknowledge endpoint. Enable once endpoint is confirmed."
+    }
+  ],
+  "connections": {
+    "Parse Alert Payload": {
+      "main": [[{"node": "Validate Alert Payload", "type": "main", "index": 0}]]
+    },
+    "Route by Platform Type": {
+      "main": [
+        [
+          {"node": "SSH: CPU Diagnostics", "type": "main", "index": 0},
+          {"node": "SSH: MEMORY Diagnostics", "type": "main", "index": 0},
+          {"node": "SSH: STORAGE Diagnostics", "type": "main", "index": 0},
+          {"node": "SSH: NETWORK Diagnostics", "type": "main", "index": 0},
+          {"node": "SSH: SECURITY Diagnostics", "type": "main", "index": 0},
+          {"node": "SSH: APPLICATION Diagnostics", "type": "main", "index": 0}
+        ],
+        [{"node": "GCP Cloud Run Diagnostics", "type": "main", "index": 0}],
+        [{"node": "GCP BigQuery Diagnostics", "type": "main", "index": 0}],
+        [{"node": "Platform Report", "type": "main", "index": 0}]
+      ]
+    },
+    "SSH: CPU Diagnostics": {"main": [[{"node": "CPU Agent", "type": "main", "index": 0}]]},
+    "CPU Agent": {"main": [[{"node": "Merge All Agents (Compute Engine)", "type": "main", "index": 0}]]},
+    "OpenAI Chat Model (CPU)": {"ai_languageModel": [[{"node": "CPU Agent", "type": "ai_languageModel", "index": 0}]]},
+    "SSH: MEMORY Diagnostics": {"main": [[{"node": "MEMORY Agent", "type": "main", "index": 0}]]},
+    "MEMORY Agent": {"main": [[{"node": "Merge All Agents (Compute Engine)", "type": "main", "index": 1}]]},
+    "OpenAI Chat Model (MEMORY)": {"ai_languageModel": [[{"node": "MEMORY Agent", "type": "ai_languageModel", "index": 0}]]},
+    "SSH: STORAGE Diagnostics": {"main": [[{"node": "STORAGE Agent", "type": "main", "index": 0}]]},
+    "STORAGE Agent": {"main": [[{"node": "Merge All Agents (Compute Engine)", "type": "main", "index": 2}]]},
+    "OpenAI Chat Model (STORAGE)": {"ai_languageModel": [[{"node": "STORAGE Agent", "type": "ai_languageModel", "index": 0}]]},
+    "SSH: NETWORK Diagnostics": {"main": [[{"node": "NETWORK Agent", "type": "main", "index": 0}]]},
+    "NETWORK Agent": {"main": [[{"node": "Merge All Agents (Compute Engine)", "type": "main", "index": 3}]]},
+    "OpenAI Chat Model (NETWORK)": {"ai_languageModel": [[{"node": "NETWORK Agent", "type": "ai_languageModel", "index": 0}]]},
+    "SSH: SECURITY Diagnostics": {"main": [[{"node": "SECURITY Agent", "type": "main", "index": 0}]]},
+    "SECURITY Agent": {"main": [[{"node": "Merge All Agents (Compute Engine)", "type": "main", "index": 4}]]},
+    "OpenAI Chat Model (SECURITY)": {"ai_languageModel": [[{"node": "SECURITY Agent", "type": "ai_languageModel", "index": 0}]]},
+    "SSH: APPLICATION Diagnostics": {"main": [[{"node": "APPLICATION Agent", "type": "main", "index": 0}]]},
+    "APPLICATION Agent": {"main": [[{"node": "Merge All Agents (Compute Engine)", "type": "main", "index": 5}]]},
+    "OpenAI Chat Model (APPLICATION)": {"ai_languageModel": [[{"node": "APPLICATION Agent", "type": "ai_languageModel", "index": 0}]]},
+    "Merge All Agents (Compute Engine)": {"main": [[{"node": "Build CE Report Segment", "type": "main", "index": 0}]]},
+    "Build CE Report Segment": {"main": [[{"node": "Cache Alert Record + Track Tokens", "type": "main", "index": 0}]]},
+    "GCP Cloud Run Diagnostics": {"main": [[{"node": "CLOUD RUN Agent", "type": "main", "index": 0}]]},
+    "CLOUD RUN Agent": {"main": [[{"node": "Build CloudRun Report Segment", "type": "main", "index": 0}]]},
+    "OpenAI Chat Model (CloudRun)": {"ai_languageModel": [[{"node": "CLOUD RUN Agent", "type": "ai_languageModel", "index": 0}]]},
+    "Build CloudRun Report Segment": {"main": [[{"node": "Cache Alert Record + Track Tokens", "type": "main", "index": 0}]]},
+    "GCP BigQuery Diagnostics": {"main": [[{"node": "BIGQUERY Agent", "type": "main", "index": 0}]]},
+    "BIGQUERY Agent": {"main": [[{"node": "Build BigQuery Report Segment", "type": "main", "index": 0}]]},
+    "OpenAI Chat Model (BigQuery)": {"ai_languageModel": [[{"node": "BIGQUERY Agent", "type": "ai_languageModel", "index": 0}]]},
+    "Build BigQuery Report Segment": {"main": [[{"node": "Cache Alert Record + Track Tokens", "type": "main", "index": 0}]]},
+    "Cache Alert Record + Track Tokens": {
+      "main": [[
+        {"node": "Build L1 Notification", "type": "main", "index": 0},
+        {"node": "Dead Letter Log", "type": "main", "index": 0}
+      ]]
+    },
+    "Build L1 Notification": {"main": [[{"node": "Send xMatters L1 Alert", "type": "main", "index": 0}]]},
+    "Send xMatters L1 Alert": {"main": [[{"node": "Log Auto-Acknowledgment", "type": "main", "index": 0}]]},
+    "Wait for L1 Decision": {"main": [[{"node": "L1 to L2 Escalation Gate", "type": "main", "index": 0}]]},
+    "L1 to L2 Escalation Gate": {
+      "main": [
+        [{"node": "Build L2 Escalation Alert Text", "type": "main", "index": 0}],
+        [{"node": "Create ServiceNow Incident", "type": "main", "index": 0}],
+        [{"node": "Resolved - No Further Action", "type": "main", "index": 0}],
+        [{"node": "Build L2 Escalation Alert Text", "type": "main", "index": 0}],
+        [{"node": "Resolved - No Further Action", "type": "main", "index": 0}]
+      ]
+    },
+    "Build L2 Escalation Alert Text": {"main": [[{"node": "Send xMatters L2 Escalation Alert", "type": "main", "index": 0}]]},
+    "Send xMatters L2 Escalation Alert": {"main": [[{"node": "Send FullReport Email to L2", "type": "main", "index": 0}]]},
+    "Platform Report": {"main": [[{"node": "Cache Alert Record + Track Tokens", "type": "main", "index": 0}]]},
+    "Alert Intake": {"main": [[{"node": "Check API Key", "type": "main", "index": 0}]]},
+    "If": {
+      "main": [
+        [{"node": "Route by Platform Type", "type": "main", "index": 0}],
+        [{"node": "Stop and Error", "type": "main", "index": 0}]
+      ]
+    },
+    "Resource Enrichment Lookup": {"main": [[{"node": "Dedup Check", "type": "main", "index": 0}]]},
+    "Log Auto-Acknowledgment": {
+      "main": [[
+        {"node": "Wait for L1 Decision", "type": "main", "index": 0},
+        {"node": "xMatters Acknowledge Event (SCAFFOLD)", "type": "main", "index": 0}
+      ]]
+    },
+    "Send FullReport Email to L2": {"main": [[{"node": "Execution Complete (L2 Escalated)", "type": "main", "index": 0}]]},
+    "Dedup Check": {"main": [[{"node": "Is Duplicate Alert?", "type": "main", "index": 0}]]},
+    "Is Duplicate Alert?": {
+      "main": [
+        [{"node": "Duplicate Alert - Suppressed", "type": "main", "index": 0}],
+        [{"node": "If", "type": "main", "index": 0}]
+      ]
+    },
+    "Check API Key": {"main": [[{"node": "Is Authenticated?", "type": "main", "index": 0}]]},
+    "Is Authenticated?": {
+      "main": [
+        [{"node": "Parse Alert Payload", "type": "main", "index": 0}],
+        [{"node": "Respond - Unauthorized", "type": "main", "index": 0}]
+      ]
+    },
+    "Validate Alert Payload": {"main": [[{"node": "Is Payload Valid?", "type": "main", "index": 0}]]},
+    "Is Payload Valid?": {
+      "main": [
+        [{"node": "Respond - Accepted", "type": "main", "index": 0}],
+        [{"node": "Respond - Bad Request", "type": "main", "index": 0}]
+      ]
+    },
+    "Respond - Accepted": {"main": [[{"node": "Resource Enrichment Lookup", "type": "main", "index": 0}]]}
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "YOUR-N8N-INSTANCE-ID"
+  }
+}
